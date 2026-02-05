@@ -444,7 +444,7 @@ List all document categories with their document counts.
   "status": "success",
   "categories": {
     "security": 52,
-    "logscale": 12,
+    "Detections_Rules ": 12,
     "redteam": 3,
     "blueteam": 3,
     "ctf": 2,
@@ -521,7 +521,7 @@ keyword_routes = {
     "redteam": ["pentest", "exploit", "payload", "reverse shell", ...],
     "blueteam": ["detection", "sigma", "yara", "incident response", ...],
     "ctf": ["ctf", "flag", "hackthebox", "tryhackme", ...],
-    "logscale": ["logscale", "humio", "lql", "formatTime", ...],
+    "Detections_Rules": ["logscale", "humio", "lql", "formatTime", ...],
     "development": ["python", "javascript", "api", "docker", ...]
 }
 ```
@@ -604,7 +604,7 @@ knowledge-rag/
 │   └── server.py          # MCP server, ChromaDB, BM25
 ├── documents/             # Your documents go here
 │   ├── security/
-│   ├── logscale/
+│   ├── Detections_Rules/
 │   ├── development/
 │   └── general/
 ├── data/
