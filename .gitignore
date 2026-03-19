@@ -27,6 +27,13 @@ documents/**/*.csv
 .cache/
 *.onnx
 
+# Local scripts (not part of distribution)
+scripts/
+setup-notebook.ps1
+demo-real.yml
+documents/.sync-log.txt
+documents/README-CATEGORIES.md
+
 # Temp/junk
 *.b64
 *.tar.gz
