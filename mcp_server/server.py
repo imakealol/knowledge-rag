@@ -5,39 +5,41 @@
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
-MCP Server with semantic search + keyword routing for local document retrieval.
-Uses ChromaDB for vector storage and Ollama for embeddings.
+MCP Server with hybrid search + cross-encoder reranking for local document retrieval.
+Uses ChromaDB for vector storage, FastEmbed for ONNX embeddings, BM25 for keywords.
 
 Features:
     - Hybrid search (semantic + BM25 keyword) with RRF fusion
+    - Cross-encoder reranking for precision boost
+    - Markdown-aware chunking (splits by ## sections)
+    - Query expansion for security term synonyms
     - Incremental indexing (only re-indexes changed files)
     - Query caching with TTL for instant repeat queries
     - Chunk deduplication via content hashing
-    - Score normalization (0-1 range)
+    - CRUD operations via MCP tools (add, update, remove docs)
 
 Autor:   Lyon (Ailton Rocha)
-Versão:  1.1.0
-Data:    2026-03-03
+Versao:  3.0.0
+Data:    2026-03-19
 
 By Lyon :) Legal Ne?
 """
 
 import json
 import hashlib
-import asyncio
 import re
 import time
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ChromaDB
 import chromadb
 
-# Ollama for embeddings
-import ollama
+# FastEmbed for ONNX embeddings + reranker
+from fastembed import TextEmbedding
+from fastembed.rerank.cross_encoder import TextCrossEncoder
 
 # BM25 for keyword search (hybrid search)
 from rank_bm25 import BM25Okapi
@@ -84,15 +86,11 @@ class QueryCache:
 
         if key in self._cache:
             timestamp, result = self._cache[key]
-
-            # Check TTL
             if time.time() - timestamp < self.ttl_seconds:
-                # Move to end (most recently used)
                 self._cache.move_to_end(key)
                 self._hits += 1
                 return result
             else:
-                # Expired - remove
                 del self._cache[key]
 
         self._misses += 1
@@ -101,11 +99,8 @@ class QueryCache:
     def put(self, query: str, max_results: int, category: Optional[str], hybrid_alpha: float, result: Any) -> None:
         """Store result in cache"""
         key = self._make_key(query, max_results, category, hybrid_alpha)
-
-        # Evict oldest if at capacity
         if len(self._cache) >= self.max_size:
             self._cache.popitem(last=False)
-
         self._cache[key] = (time.time(), result)
 
     def invalidate(self) -> None:
@@ -126,74 +121,45 @@ class QueryCache:
 
 
 # =============================================================================
-# EMBEDDINGS
+# EMBEDDINGS (FastEmbed — ONNX in-process)
 # =============================================================================
 
-class OllamaEmbeddings:
+class FastEmbedEmbeddings:
     """
-    Ollama-based embedding function for ChromaDB (v1.4.0+ compatible).
+    FastEmbed-based embedding function for ChromaDB (v1.4.0+ compatible).
 
-    Uses ThreadPoolExecutor for parallel embedding generation to improve
-    indexing performance. Default: 4 parallel workers.
+    Uses ONNX Runtime in-process for embedding generation.
+    No external server required (replaces Ollama).
+    Model: BAAI/bge-small-en-v1.5 (384-dim, MTEB score 62.x)
     """
 
-    def __init__(self, model: str = None, base_url: str = None, max_workers: int = 4):
-        self.model = model or config.ollama_model
-        self.base_url = base_url or config.ollama_base_url
-        self.max_workers = max_workers
-        self._client = ollama.Client(host=self.base_url)
-
-    def _embed_single(self, text: str) -> List[float]:
-        """Embed a single text (internal method for parallel execution)"""
-        try:
-            response = self._client.embeddings(
-                model=self.model,
-                prompt=text
-            )
-            return response["embedding"]
-        except Exception as e:
-            print(f"[WARN] Embedding failed for text chunk: {e}")
-            # Return zero vector on failure (will have low similarity)
-            return [0.0] * 768  # nomic-embed-text dimension
+    def __init__(self, model: str = None):
+        self.model_name = model or config.embedding_model
+        self._dim = config.embedding_dim
+        print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D)...")
+        self._model = TextEmbedding(model_name=self.model_name)
+        print(f"[INFO] Embedding model loaded successfully")
 
     def __call__(self, input: List[str]) -> List[List[float]]:
         """
-        Generate embeddings for a list of texts using parallel execution.
+        Generate embeddings for a list of texts.
 
-        For small batches (< 4 texts): sequential processing
-        For larger batches: parallel processing with ThreadPoolExecutor
+        ChromaDB embedding_function interface: __call__(input: List[str]) -> List[List[float]]
+        FastEmbed.embed() returns a generator, so we consume it into a list.
         """
         if not input:
             return []
 
-        # For small batches, sequential is fine (avoids thread overhead)
-        if len(input) < 4:
-            return [self._embed_single(text) for text in input]
-
-        # Parallel processing for larger batches
-        embeddings = [None] * len(input)
-
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all tasks with their indices
-            future_to_idx = {
-                executor.submit(self._embed_single, text): idx
-                for idx, text in enumerate(input)
-            }
-
-            # Collect results maintaining order
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                try:
-                    embeddings[idx] = future.result()
-                except Exception as e:
-                    print(f"[WARN] Embedding task {idx} failed: {e}")
-                    embeddings[idx] = [0.0] * 768
-
-        return embeddings
+        try:
+            embeddings = list(self._model.embed(input))
+            return [emb.tolist() for emb in embeddings]
+        except Exception as e:
+            print(f"[WARN] Embedding failed: {e}")
+            return [[0.0] * self._dim for _ in input]
 
     def name(self) -> str:
         """Return embedding function name (required by ChromaDB v1.4.0+)"""
-        return f"ollama-{self.model}"
+        return f"fastembed-{self.model_name}"
 
     def embed_documents(self, documents: List[str]) -> List[List[float]]:
         """Embed a list of documents (alias for __call__)"""
@@ -201,39 +167,136 @@ class OllamaEmbeddings:
 
     def embed_query(self, input=None, **kwargs) -> List[List[float]]:
         """Embed query text(s) - returns list of embeddings"""
-        # Handle both string and list inputs
         if isinstance(input, list):
             texts = input
         elif input is not None:
             texts = [input]
         else:
             texts = [kwargs.get('query', '')]
+        return self(texts)
 
-        # Queries are typically single texts, use sequential
-        return [self._embed_single(text) for text in texts]
 
+# =============================================================================
+# CROSS-ENCODER RERANKER
+# =============================================================================
+
+class CrossEncoderReranker:
+    """
+    Cross-encoder reranker using FastEmbed's TextCrossEncoder.
+
+    Applied after hybrid RRF fusion to re-score the top candidates
+    using a cross-encoder model that sees query+document pairs jointly.
+    Dramatically improves precision over bi-encoder retrieval alone.
+
+    Model: Xenova/ms-marco-MiniLM-L-6-v2 (ONNX, ~25MB)
+    """
+
+    def __init__(self, model: str = None):
+        self.model_name = model or config.reranker_model
+        self._model = None  # Lazy init
+
+    def _ensure_model(self):
+        """Lazy initialization of cross-encoder model"""
+        if self._model is None:
+            print(f"[INFO] Loading reranker model: {self.model_name}...")
+            self._model = TextCrossEncoder(model_name=self.model_name)
+            print(f"[INFO] Reranker model loaded successfully")
+
+    def rerank(
+        self,
+        query: str,
+        documents: List[Dict[str, Any]],
+        top_k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Rerank documents using cross-encoder scores.
+
+        Args:
+            query: Original search query
+            documents: List of result dicts (must have 'document' key)
+            top_k: Number of top results to return after reranking
+
+        Returns:
+            Reranked list of documents, sorted by cross-encoder score (top_k)
+        """
+        if not documents or not config.reranker_enabled:
+            return documents[:top_k]
+
+        self._ensure_model()
+
+        texts = [doc.get("document", "") for doc in documents]
+
+        try:
+            scores = list(self._model.rerank(query, texts))
+            for doc, score in zip(documents, scores):
+                doc["reranker_score"] = float(score)
+            documents.sort(key=lambda x: x.get("reranker_score", 0), reverse=True)
+        except Exception as e:
+            print(f"[WARN] Reranker failed, using RRF order: {e}")
+
+        return documents[:top_k]
+
+
+# =============================================================================
+# BM25 INDEX
+# =============================================================================
 
 class BM25Index:
     """
-    BM25 keyword index for hybrid search.
+    BM25 keyword index for hybrid search with query expansion.
 
     Maintains a BM25 index of all document chunks for fast keyword-based retrieval.
-    Used in combination with semantic search for hybrid search.
+    Supports security-term synonym expansion for improved recall.
     """
 
     def __init__(self):
-        self.corpus: List[str] = []  # Original texts
-        self.corpus_ids: List[str] = []  # Chunk IDs (doc_id_chunkIndex)
+        self.corpus: List[str] = []
+        self.corpus_ids: List[str] = []
         self.bm25: Optional[BM25Okapi] = None
         self._tokenized_corpus: List[List[str]] = []
 
     def _tokenize(self, text: str) -> List[str]:
-        """Simple tokenization: lowercase, split on non-alphanumeric"""
-        # Keep technical terms intact (CVE-2021-44228, etc.)
+        """Simple tokenization: lowercase, split on non-alphanumeric, keep hyphens"""
         text_lower = text.lower()
-        # Split on whitespace and punctuation, keeping alphanumeric and hyphens
         tokens = re.findall(r'[a-z0-9][-a-z0-9]*[a-z0-9]|[a-z0-9]', text_lower)
         return tokens
+
+    def expand_query(self, query: str) -> str:
+        """
+        Expand query with security-term synonyms for BM25 search.
+
+        Looks up query tokens against config.query_expansions and appends
+        synonym tokens. Improves recall for abbreviated technical terms
+        (e.g., "sqli" expands to include "sql injection").
+
+        Args:
+            query: Original query string
+
+        Returns:
+            Expanded query string with synonyms appended
+        """
+        query_lower = query.lower().strip()
+        expanded_terms = set()
+
+        # Check full query
+        if query_lower in config.query_expansions:
+            expanded_terms.update(config.query_expansions[query_lower])
+
+        # Check individual tokens
+        tokens = self._tokenize(query_lower)
+        for token in tokens:
+            if token in config.query_expansions:
+                expanded_terms.update(config.query_expansions[token])
+
+        # Check bigrams
+        for i in range(len(tokens) - 1):
+            bigram = f"{tokens[i]} {tokens[i+1]}"
+            if bigram in config.query_expansions:
+                expanded_terms.update(config.query_expansions[bigram])
+
+        if expanded_terms:
+            return query_lower + " " + " ".join(expanded_terms)
+        return query_lower
 
     def add_documents(self, chunk_ids: List[str], texts: List[str]) -> None:
         """Add documents to the BM25 index"""
@@ -249,26 +312,26 @@ class BM25Index:
 
     def search(self, query: str, top_k: int = 20) -> List[Tuple[str, float]]:
         """
-        Search the BM25 index.
+        Search the BM25 index with query expansion.
 
         Returns list of (chunk_id, score) tuples sorted by score descending.
         """
         if not self.bm25 or not self.corpus:
             return []
 
-        tokenized_query = self._tokenize(query)
+        # Expand query with synonyms before tokenizing
+        expanded_query = self.expand_query(query)
+        tokenized_query = self._tokenize(expanded_query)
         if not tokenized_query:
             return []
 
         scores = self.bm25.get_scores(tokenized_query)
 
-        # Get top_k results with their scores
         results = []
         for idx, score in enumerate(scores):
-            if score > 0:  # Only include non-zero scores
+            if score > 0:
                 results.append((self.corpus_ids[idx], score))
 
-        # Sort by score descending and take top_k
         results.sort(key=lambda x: x[1], reverse=True)
         return results[:top_k]
 
@@ -283,12 +346,16 @@ class BM25Index:
         return len(self.corpus)
 
 
+# =============================================================================
+# KNOWLEDGE ORCHESTRATOR
+# =============================================================================
+
 class KnowledgeOrchestrator:
     """Main orchestrator for knowledge retrieval with semantic search + keyword routing"""
 
     def __init__(self):
         self.parser = DocumentParser()
-        self.embed_fn = OllamaEmbeddings()
+        self.embed_fn = FastEmbedEmbeddings()
 
         # Initialize ChromaDB with persistent storage (new API v1.4.0+)
         self.chroma_client = chromadb.PersistentClient(
@@ -306,6 +373,9 @@ class KnowledgeOrchestrator:
         self.bm25_index = BM25Index()
         self._bm25_initialized = False
 
+        # Cross-encoder reranker (lazy-loaded on first query)
+        self.reranker = CrossEncoderReranker()
+
         # Query cache (LRU with TTL)
         self.query_cache = QueryCache(max_size=100, ttl_seconds=300)
 
@@ -313,19 +383,46 @@ class KnowledgeOrchestrator:
         self._metadata_file = config.data_dir / "index_metadata.json"
         self._indexed_docs: Dict[str, Dict] = self._load_metadata()
 
-        # Chunk dedup tracking (content_hash → chunk_id)
+        # Chunk dedup tracking (content_hash -> chunk_id)
         self._chunk_hashes: Dict[str, str] = self._build_dedup_index()
+
+        # Migration: check if embedding dimension changed
+        self._needs_rebuild = self._check_dimension_mismatch()
+
+    def _check_dimension_mismatch(self) -> bool:
+        """Check if stored embeddings have different dimension than current config.
+
+        Uses a test query to detect dimension mismatch (more reliable than
+        reading stored embeddings which may not be available in all ChromaDB backends).
+        """
+        if self.collection.count() == 0:
+            return False
+        try:
+            # Attempt a real query — ChromaDB will throw if dimensions don't match
+            self.collection.query(
+                query_texts=["dimension check"],
+                n_results=1,
+                include=["documents"]
+            )
+            return False  # Query succeeded, dimensions match
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "dimension" in error_msg:
+                print(f"[MIGRATION] Embedding dimension mismatch detected: {e}")
+                print(f"[MIGRATION] Nuclear rebuild required.")
+                return True
+            # Other error — don't trigger rebuild
+            print(f"[WARN] Dimension check query failed (non-dimension error): {e}")
+            return False
 
     def _ensure_bm25_index(self) -> None:
         """Lazy initialization of BM25 index from existing ChromaDB data"""
         if self._bm25_initialized:
             return
 
-        # Load all documents from ChromaDB to build BM25 index
         try:
             count = self.collection.count()
             if count > 0:
-                # Get all documents from ChromaDB
                 all_data = self.collection.get(
                     include=["documents"],
                     limit=count
@@ -351,37 +448,21 @@ class KnowledgeOrchestrator:
         Index documents with incremental change detection.
 
         Compares file mtime/size against stored metadata to detect changes.
-        Only re-indexes files that are new or modified. Cleans up orphaned
-        chunks from files that were modified or deleted.
-
-        Args:
-            force: If True, skip change detection and index everything
-
-        Returns:
-            Dict with indexing statistics
+        Only re-indexes files that are new or modified.
         """
         stats = {
-            "total_files": 0,
-            "indexed": 0,
-            "updated": 0,
-            "skipped": 0,
-            "deleted": 0,
-            "errors": 0,
-            "chunks_added": 0,
-            "chunks_removed": 0,
-            "dedup_skipped": 0,
-            "categories": {}
+            "total_files": 0, "indexed": 0, "updated": 0, "skipped": 0,
+            "deleted": 0, "errors": 0, "chunks_added": 0, "chunks_removed": 0,
+            "dedup_skipped": 0, "categories": {}
         }
 
         documents = self.parser.parse_directory()
         stats["total_files"] = len(documents)
 
-        # Build reverse map: filepath → doc_id for detecting modified files
         path_to_docid: Dict[str, str] = {}
         for doc_id, info in self._indexed_docs.items():
             path_to_docid[info.get("source", "")] = doc_id
 
-        # Track which filepaths are still present (for orphan detection)
         current_paths = set()
 
         for doc in documents:
@@ -392,8 +473,6 @@ class KnowledgeOrchestrator:
 
                 if not force and existing_doc_id:
                     existing_meta = self._indexed_docs.get(existing_doc_id, {})
-
-                    # Compare mtime and size to detect changes
                     stored_mtime = existing_meta.get("file_mtime", "")
                     stored_size = existing_meta.get("file_size", 0)
 
@@ -405,12 +484,10 @@ class KnowledgeOrchestrator:
                         current_mtime = ""
                         current_size = 0
 
-                    # File unchanged → skip
                     if stored_mtime == current_mtime and stored_size == current_size:
                         stats["skipped"] += 1
                         continue
 
-                    # File changed → delete old chunks first
                     removed = self._remove_document_chunks(existing_doc_id)
                     stats["chunks_removed"] += removed
                     del self._indexed_docs[existing_doc_id]
@@ -419,17 +496,14 @@ class KnowledgeOrchestrator:
                     stats["skipped"] += 1
                     continue
 
-                # Index the document (with dedup)
                 chunks_added, dedup_skipped = self._index_document(doc)
 
-                # Track stats
                 if not (existing_doc_id and not force):
                     stats["indexed"] += 1
                 stats["chunks_added"] += chunks_added
                 stats["dedup_skipped"] += dedup_skipped
                 stats["categories"][doc.category] = stats["categories"].get(doc.category, 0) + 1
 
-                # Store metadata with file mtime for incremental detection
                 try:
                     file_stat = doc.source.stat()
                     file_mtime = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
@@ -453,7 +527,7 @@ class KnowledgeOrchestrator:
                 stats["errors"] += 1
                 print(f"[ERROR] Failed to index {doc.source}: {e}")
 
-        # Clean up orphaned docs (files that were deleted from disk)
+        # Clean up orphaned docs
         orphan_ids = []
         for doc_id, info in list(self._indexed_docs.items()):
             if info.get("source", "") not in current_paths:
@@ -461,34 +535,22 @@ class KnowledgeOrchestrator:
                 stats["chunks_removed"] += removed
                 stats["deleted"] += 1
                 orphan_ids.append(doc_id)
-                print(f"[CLEANUP] Removed orphaned doc: {info.get('source', doc_id)}")
 
         for doc_id in orphan_ids:
             del self._indexed_docs[doc_id]
 
-        # Persist metadata
         self._save_metadata()
 
-        # Invalidate query cache after indexing changes
         if stats["indexed"] > 0 or stats["updated"] > 0 or stats["deleted"] > 0:
             self.query_cache.invalidate()
 
         return stats
 
     def _index_document(self, doc: Document) -> Tuple[int, int]:
-        """
-        Index a single document's chunks into ChromaDB and BM25.
-
-        Performs content-hash deduplication: chunks with identical content
-        are skipped to prevent index bloat.
-
-        Returns:
-            Tuple of (chunks_added, chunks_skipped_by_dedup)
-        """
+        """Index a single document's chunks into ChromaDB and BM25 with dedup."""
         if not doc.chunks:
             return 0, 0
 
-        # Filter out duplicate chunks via content hashing
         unique_ids = []
         unique_docs = []
         unique_metas = []
@@ -498,7 +560,6 @@ class KnowledgeOrchestrator:
             content_hash = hashlib.sha256(chunk.content.encode("utf-8")).hexdigest()[:20]
             chunk_id = f"{doc.id}_{chunk.index}"
 
-            # Skip if identical content already indexed
             if content_hash in self._chunk_hashes:
                 dedup_skipped += 1
                 continue
@@ -519,48 +580,31 @@ class KnowledgeOrchestrator:
             })
 
         if unique_ids:
-            # Add to ChromaDB (semantic search)
             self.collection.add(
                 ids=unique_ids,
                 documents=unique_docs,
                 metadatas=unique_metas
             )
-
-            # Add to BM25 index (keyword search)
             self.bm25_index.add_documents(unique_ids, unique_docs)
 
         return len(unique_ids), dedup_skipped
 
     def _remove_document_chunks(self, doc_id: str) -> int:
-        """
-        Remove all chunks belonging to a document from ChromaDB and BM25.
-
-        Args:
-            doc_id: The document ID whose chunks should be removed
-
-        Returns:
-            Number of chunks removed
-        """
+        """Remove all chunks belonging to a document from ChromaDB and BM25."""
         try:
-            # Find all chunks with this doc_id
             results = self.collection.get(
                 where={"doc_id": doc_id},
                 include=["metadatas"]
             )
 
             if results["ids"]:
-                # Remove content hashes from dedup index
                 for meta in results["metadatas"]:
                     content_hash = meta.get("content_hash", "")
                     if content_hash and content_hash in self._chunk_hashes:
                         del self._chunk_hashes[content_hash]
 
-                # Delete from ChromaDB
                 self.collection.delete(ids=results["ids"])
-
-                # BM25 needs full rebuild (no delete support)
                 self._bm25_initialized = False
-
                 return len(results["ids"])
         except Exception as e:
             print(f"[WARN] Failed to remove chunks for doc {doc_id}: {e}")
@@ -586,85 +630,55 @@ class KnowledgeOrchestrator:
         return dedup
 
     def reindex_all(self) -> Dict[str, Any]:
-        """
-        Smart reindex: incremental detection + BM25 rebuild + orphan cleanup.
-
-        Unlike a nuclear rebuild (which re-embeds ALL chunks via Ollama and takes
-        forever), this method:
-        1. Detects new/changed/deleted files via mtime+size comparison
-        2. Only re-embeds new or changed documents (FAST for small changes)
-        3. Removes orphaned chunks from deleted files
-        4. Rebuilds BM25 index from existing ChromaDB data (no Ollama needed)
-        5. Cleans up orphan UUID folders in ChromaDB storage
-
-        This is what `force=True` calls. For a true nuclear rebuild (corrupted DB),
-        use `nuclear_rebuild()` instead.
-        """
+        """Smart reindex: incremental detection + BM25 rebuild + orphan cleanup."""
         import shutil
 
         print("[REINDEX] Starting smart incremental reindex...")
         start_time = time.time()
 
-        # Step 1: Incremental index (new/changed/deleted detection)
         stats = self.index_all(force=False)
 
-        # Step 2: Rebuild BM25 index from current ChromaDB data
         print("[REINDEX] Rebuilding BM25 index...")
         self.bm25_index.clear()
         self._bm25_initialized = False
-        self.bm25_index.build_index()
-        self._bm25_initialized = True
-        print(f"[REINDEX] BM25 index rebuilt with {len(self.bm25_index)} documents")
+        self._ensure_bm25_index()
 
-        # Step 3: Clean orphan UUID folders (ChromaDB doesn't auto-clean)
         chroma_dir = config.chroma_dir
         orphans_cleaned = 0
         if chroma_dir.exists():
             for item in chroma_dir.iterdir():
                 if item.is_dir() and len(item.name) == 36 and '-' in item.name:
                     try:
-                        # Check if folder is actually used by ChromaDB
                         if not any(item.iterdir()):
                             shutil.rmtree(item)
                             orphans_cleaned += 1
-                            print(f"[CLEANUP] Removed empty orphan folder: {item.name}")
                     except Exception:
                         pass
 
-        # Step 4: Invalidate query cache
         self.query_cache.invalidate()
 
         elapsed = time.time() - start_time
         stats["orphan_folders_cleaned"] = orphans_cleaned
         stats["elapsed_seconds"] = round(elapsed, 2)
-        print(f"[REINDEX] Smart reindex completed in {elapsed:.1f}s "
+        print(f"[REINDEX] Completed in {elapsed:.1f}s "
               f"(indexed: {stats['indexed']}, updated: {stats['updated']}, "
               f"skipped: {stats['skipped']}, deleted: {stats['deleted']})")
 
         return stats
 
     def nuclear_rebuild(self) -> Dict[str, Any]:
-        """
-        Nuclear rebuild: DELETE everything and re-embed ALL documents from scratch.
-
-        WARNING: This is EXTREMELY SLOW (re-embeds all chunks via Ollama).
-        Only use when ChromaDB is corrupted or embeddings model changed.
-
-        For normal reindexing, use `reindex_all()` instead (smart incremental).
-        """
+        """Nuclear rebuild: DELETE everything and re-embed ALL documents."""
         import shutil
 
-        print("[NUCLEAR] Starting full rebuild — this will take a long time...")
+        print("[NUCLEAR] Starting full rebuild...")
         start_time = time.time()
 
-        # Step 1: Delete collection from ChromaDB
         try:
             self.chroma_client.delete_collection(config.collection_name)
             print("[NUCLEAR] Deleted ChromaDB collection")
         except Exception:
             pass
 
-        # Step 2: Clean ALL UUID folders
         chroma_dir = config.chroma_dir
         if chroma_dir.exists():
             for item in chroma_dir.iterdir():
@@ -674,24 +688,20 @@ class KnowledgeOrchestrator:
                     except Exception:
                         pass
 
-        # Step 3: Recreate collection
         self.collection = self.chroma_client.get_or_create_collection(
             name=config.collection_name,
             embedding_function=self.embed_fn,
             metadata={"description": "Knowledge base for RAG"}
         )
 
-        # Step 4: Clear ALL caches and metadata
         self._indexed_docs = {}
         self.bm25_index.clear()
         self._bm25_initialized = False
         self._chunk_hashes = {}
         self.query_cache.invalidate()
 
-        # Step 5: Reindex everything (force=True skips mtime check)
         stats = self.index_all(force=True)
 
-        # Step 6: Build BM25 index
         self.bm25_index.build_index()
         self._bm25_initialized = True
 
@@ -714,42 +724,28 @@ class KnowledgeOrchestrator:
         hybrid_alpha: float = 0.5
     ) -> List[Dict[str, Any]]:
         """
-        Hybrid search combining semantic search + BM25 keyword search.
+        Hybrid search with RRF fusion + cross-encoder reranking.
 
-        Uses Reciprocal Rank Fusion (RRF) to combine results from both methods.
-        Results are cached with TTL for instant repeat queries.
-        Scores are normalized to 0-1 range.
-
-        Args:
-            query_text: Search query
-            max_results: Maximum results to return
-            category_filter: Optional category filter
-            hybrid_alpha: Weight for semantic vs keyword (0.0 = keyword only, 1.0 = semantic only)
-
-        Returns:
-            List of results sorted by combined RRF score (normalized 0-1)
+        Pipeline: Semantic + BM25 -> RRF fusion -> Reranker -> Results
         """
         max_results = max_results or config.default_results
 
-        # Check cache first
+        # Check cache
         cached = self.query_cache.get(query_text, max_results, category_filter, hybrid_alpha)
         if cached is not None:
             return cached
 
-        # Ensure BM25 index is ready
         self._ensure_bm25_index()
 
-        # Step 1: Keyword routing (for category detection)
+        # Keyword routing
         routed_category = self._route_by_keywords(query_text)
-
-        # Step 2: Build filter
         where_filter = None
         if category_filter:
             where_filter = {"category": category_filter}
         elif routed_category:
             where_filter = {"category": routed_category}
 
-        # Step 3: Semantic search (ChromaDB) - SKIP if hybrid_alpha=0 (keyword only)
+        # Semantic search (ChromaDB)
         semantic_results = {}
         if hybrid_alpha > 0:
             try:
@@ -772,7 +768,7 @@ class KnowledgeOrchestrator:
             except Exception as e:
                 print(f"[WARN] Semantic search failed: {e}")
 
-        # Step 4: BM25 keyword search - SKIP if hybrid_alpha=1.0 (semantic only)
+        # BM25 keyword search
         bm25_results = {}
         if hybrid_alpha < 1.0:
             try:
@@ -785,29 +781,22 @@ class KnowledgeOrchestrator:
             except Exception as e:
                 print(f"[WARN] BM25 search failed: {e}")
 
-        # Step 5: Reciprocal Rank Fusion (RRF)
-        # RRF formula: score = sum(1 / (k + rank)) for each method
-        # k is a constant (typically 60) to prevent high scores for top ranks
+        # RRF Fusion
         RRF_K = 60
         combined_scores: Dict[str, Dict] = {}
-
-        # All unique chunk IDs from both searches
         all_chunk_ids = set(semantic_results.keys()) | set(bm25_results.keys())
 
         for chunk_id in all_chunk_ids:
             semantic_rank = semantic_results.get(chunk_id, {}).get("rank", 1000)
             bm25_rank = bm25_results.get(chunk_id, {}).get("rank", 1000)
 
-            # RRF scores (weighted by hybrid_alpha)
             semantic_rrf = hybrid_alpha * (1 / (RRF_K + semantic_rank))
             bm25_rrf = (1 - hybrid_alpha) * (1 / (RRF_K + bm25_rank))
             combined_rrf = semantic_rrf + bm25_rrf
 
-            # Get document data (prefer semantic results as they have full metadata)
             if chunk_id in semantic_results:
                 data = semantic_results[chunk_id]
             else:
-                # Need to fetch from ChromaDB for BM25-only results
                 try:
                     fetched = self.collection.get(ids=[chunk_id], include=["documents", "metadatas"])
                     data = {
@@ -827,83 +816,87 @@ class KnowledgeOrchestrator:
                 "distance": data.get("distance", 0)
             }
 
-        # Step 6: Sort by RRF score and take top results
+        # Sort by RRF score — take extra candidates for reranker
+        reranker_k = max_results * config.reranker_top_k_multiplier if config.reranker_enabled else max_results
         sorted_results = sorted(
             combined_scores.items(),
             key=lambda x: x[1]["rrf_score"],
             reverse=True
-        )[:max_results]
+        )[:reranker_k]
 
-        # Step 7: Normalize scores to 0-1 range
+        # Cross-encoder reranking
+        if config.reranker_enabled and sorted_results:
+            rerank_input = []
+            for chunk_id, data in sorted_results:
+                rerank_input.append({
+                    "chunk_id": chunk_id,
+                    "document": data["document"],
+                    "metadata": data["metadata"],
+                    "rrf_score": data["rrf_score"],
+                    "semantic_rank": data["semantic_rank"],
+                    "bm25_rank": data["bm25_rank"],
+                    "distance": data["distance"],
+                })
+            reranked = self.reranker.rerank(query_text, rerank_input, top_k=max_results)
+            sorted_results = [(d["chunk_id"], d) for d in reranked]
+
+        # Normalize scores and format
         if sorted_results:
-            raw_scores = [data["rrf_score"] for _, data in sorted_results]
-            max_score = max(raw_scores)
-            min_score = min(raw_scores)
+            raw_scores = [data.get("reranker_score", data.get("rrf_score", 0)) for _, data in sorted_results]
+            max_score = max(raw_scores) if raw_scores else 1
+            min_score = min(raw_scores) if raw_scores else 0
             score_range = max_score - min_score
+        else:
+            score_range = 0
 
-        # Step 8: Format results
         formatted = []
-        for chunk_id, data in sorted_results:
-            metadata = data["metadata"]
+        for chunk_id, data in sorted_results[:max_results]:
+            metadata = data.get("metadata", {})
+            s_rank = data.get("semantic_rank")
+            b_rank = data.get("bm25_rank")
 
-            # Determine search method used
-            if data["semantic_rank"] and data["bm25_rank"]:
+            if s_rank and b_rank:
                 search_method = "hybrid"
-            elif data["semantic_rank"]:
+            elif s_rank:
                 search_method = "semantic"
             else:
                 search_method = "keyword"
 
-            # Normalize score to 0-1
-            if score_range > 0:
-                normalized_score = (data["rrf_score"] - min_score) / score_range
-            else:
-                normalized_score = 1.0 if sorted_results else 0.0
+            raw = data.get("reranker_score", data.get("rrf_score", 0))
+            normalized_score = (raw - min_score) / score_range if score_range > 0 else 1.0
 
             formatted.append({
-                "content": data["document"],
+                "content": data.get("document", ""),
                 "source": metadata.get("source", ""),
                 "filename": metadata.get("filename", ""),
                 "category": metadata.get("category", ""),
                 "chunk_index": metadata.get("chunk_index", 0),
                 "score": round(normalized_score, 4),
-                "raw_rrf_score": round(data["rrf_score"], 6),
-                "semantic_rank": data["semantic_rank"],
-                "bm25_rank": data["bm25_rank"],
+                "raw_rrf_score": round(data.get("rrf_score", 0), 6),
+                "reranker_score": round(data.get("reranker_score", 0), 6) if "reranker_score" in data else None,
+                "semantic_rank": s_rank,
+                "bm25_rank": b_rank,
                 "search_method": search_method,
                 "keywords": metadata.get("keywords", "").split(","),
                 "routed_by": routed_category if routed_category else "none"
             })
 
-        # Store in cache
         self.query_cache.put(query_text, max_results, category_filter, hybrid_alpha, formatted)
-
         return formatted
 
     def _route_by_keywords(self, query_text: str) -> Optional[str]:
-        """
-        Weighted keyword routing with word boundaries.
-
-        Uses regex word boundaries to avoid false positives (e.g., "RAPID" matching "api").
-        Scores each category by number of keyword matches and returns the highest scoring one.
-        """
+        """Weighted keyword routing with word boundaries."""
         query_lower = query_text.lower()
-
-        # Score each category by counting keyword matches with word boundaries
         category_scores: Dict[str, Tuple[int, List[str]]] = {}
 
         for category, keywords in config.keyword_routes.items():
             matches = []
             for keyword in keywords:
                 keyword_lower = keyword.lower()
-                # Use word boundaries for single words, exact match for phrases
                 if ' ' in keyword_lower:
-                    # Phrase: use exact substring match (phrases are less ambiguous)
                     if keyword_lower in query_lower:
                         matches.append(keyword)
                 else:
-                    # Single word: use word boundary to avoid false positives
-                    # e.g., "api" should not match "RAPID"
                     pattern = r'\b' + re.escape(keyword_lower) + r'\b'
                     if re.search(pattern, query_lower):
                         matches.append(keyword)
@@ -914,19 +907,16 @@ class KnowledgeOrchestrator:
         if not category_scores:
             return None
 
-        # Return category with highest score (most keyword matches)
         best_category = max(category_scores.keys(), key=lambda c: category_scores[c][0])
         return best_category
 
     # =========================================================================
-    # Document Retrieval
+    # Document Retrieval & Management
     # =========================================================================
 
     def get_document(self, filepath: str) -> Optional[Dict[str, Any]]:
         """Get full document content by filepath"""
         filepath = Path(filepath)
-
-        # Try to parse fresh
         try:
             doc = self.parser.parse_file(filepath)
             if doc:
@@ -942,8 +932,275 @@ class KnowledgeOrchestrator:
                 }
         except Exception as e:
             print(f"[ERROR] Failed to read document {filepath}: {e}")
-
         return None
+
+    def add_document_from_content(self, content: str, filepath: str, category: str) -> Dict[str, Any]:
+        """Add a new document from raw content string. Saves to disk and indexes."""
+        full_path = config.documents_dir / filepath
+        full_path.parent.mkdir(parents=True, exist_ok=True)
+        full_path.write_text(content, encoding="utf-8")
+
+        doc = self.parser.parse_file(full_path)
+        if not doc:
+            return {"error": "Failed to parse document content"}
+
+        doc.category = category
+        for chunk in doc.chunks:
+            chunk.metadata["category"] = category
+
+        chunks_added, dedup_skipped = self._index_document(doc)
+
+        try:
+            file_stat = full_path.stat()
+            file_mtime = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+            file_size = file_stat.st_size
+        except OSError:
+            file_mtime = datetime.now().isoformat()
+            file_size = 0
+
+        self._indexed_docs[doc.id] = {
+            "source": str(full_path),
+            "category": category,
+            "format": doc.format,
+            "chunks": chunks_added,
+            "keywords": doc.keywords,
+            "indexed_at": datetime.now().isoformat(),
+            "file_mtime": file_mtime,
+            "file_size": file_size,
+        }
+        self._save_metadata()
+        self.query_cache.invalidate()
+        self.bm25_index.build_index()
+
+        return {
+            "chunks_added": chunks_added,
+            "dedup_skipped": dedup_skipped,
+            "category": category,
+            "filepath": str(full_path),
+        }
+
+    def update_document_content(self, filepath: str, content: str) -> Dict[str, Any]:
+        """Update an existing document. Removes old chunks and re-indexes."""
+        filepath = Path(filepath)
+        if not filepath.exists():
+            return {"error": f"File not found: {filepath}"}
+
+        doc_id = None
+        for did, info in self._indexed_docs.items():
+            if info.get("source") == str(filepath):
+                doc_id = did
+                break
+
+        old_chunks_removed = 0
+        if doc_id:
+            old_chunks_removed = self._remove_document_chunks(doc_id)
+            del self._indexed_docs[doc_id]
+
+        filepath.write_text(content, encoding="utf-8")
+
+        doc = self.parser.parse_file(filepath)
+        if not doc:
+            self._save_metadata()
+            return {"error": "Failed to parse updated content", "old_chunks_removed": old_chunks_removed}
+
+        new_chunks_added, dedup_skipped = self._index_document(doc)
+
+        try:
+            file_stat = filepath.stat()
+            file_mtime = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+            file_size = file_stat.st_size
+        except OSError:
+            file_mtime = datetime.now().isoformat()
+            file_size = 0
+
+        self._indexed_docs[doc.id] = {
+            "source": str(filepath),
+            "category": doc.category,
+            "format": doc.format,
+            "chunks": new_chunks_added,
+            "keywords": doc.keywords,
+            "indexed_at": datetime.now().isoformat(),
+            "file_mtime": file_mtime,
+            "file_size": file_size,
+        }
+        self._save_metadata()
+        self.query_cache.invalidate()
+        self.bm25_index.build_index()
+
+        return {
+            "old_chunks_removed": old_chunks_removed,
+            "new_chunks_added": new_chunks_added,
+            "dedup_skipped": dedup_skipped,
+            "filepath": str(filepath),
+        }
+
+    def remove_document_by_path(self, filepath: str, delete_file: bool = False) -> Dict[str, Any]:
+        """Remove a document from the index. Optionally delete from disk."""
+        filepath_str = str(Path(filepath))
+
+        doc_id = None
+        for did, info in self._indexed_docs.items():
+            if info.get("source") == filepath_str:
+                doc_id = did
+                break
+
+        if not doc_id:
+            return {"error": f"Document not found in index: {filepath}"}
+
+        chunks_removed = self._remove_document_chunks(doc_id)
+        del self._indexed_docs[doc_id]
+
+        if delete_file:
+            try:
+                Path(filepath).unlink(missing_ok=True)
+            except Exception as e:
+                print(f"[WARN] Failed to delete file {filepath}: {e}")
+
+        self._save_metadata()
+        self.query_cache.invalidate()
+
+        return {"chunks_removed": chunks_removed, "filepath": filepath_str, "file_deleted": delete_file}
+
+    def add_from_url(self, url: str, category: str, title: str = None) -> Dict[str, Any]:
+        """Fetch URL content, convert to markdown, and add to knowledge base."""
+        import requests
+        from bs4 import BeautifulSoup
+
+        try:
+            response = requests.get(url, timeout=30, headers={
+                "User-Agent": "Mozilla/5.0 (knowledge-rag-ingester)"
+            })
+            response.raise_for_status()
+        except Exception as e:
+            return {"error": f"Failed to fetch URL: {e}"}
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+
+        if not title:
+            title_tag = soup.find("title")
+            title = title_tag.get_text(strip=True) if title_tag else url.split("/")[-1]
+
+        text = soup.get_text(separator="\n", strip=True)
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        clean_text = f"# {title}\n\nSource: {url}\n\n" + "\n\n".join(lines)
+
+        safe_title = re.sub(r'[^\w\s-]', '', title).strip().replace(' ', '-').lower()[:60]
+        filename = f"{safe_title}.md"
+        filepath = f"{category}/{filename}"
+
+        return self.add_document_from_content(clean_text, filepath, category)
+
+    def search_similar(self, filepath: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """Find documents similar to a given document using embedding similarity."""
+        filepath_str = str(Path(filepath))
+
+        doc_id = None
+        for did, info in self._indexed_docs.items():
+            if info.get("source") == filepath_str:
+                doc_id = did
+                break
+
+        if not doc_id:
+            return []
+
+        try:
+            results = self.collection.get(
+                where={"doc_id": doc_id},
+                include=["embeddings"],
+                limit=1
+            )
+            if not results["ids"] or not results["embeddings"]:
+                return []
+            query_embedding = results["embeddings"][0]
+        except Exception:
+            return []
+
+        try:
+            similar = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=max_results + 20,
+                include=["documents", "metadatas", "distances"]
+            )
+        except Exception:
+            return []
+
+        if not similar["ids"] or not similar["ids"][0]:
+            return []
+
+        seen_sources = set()
+        output = []
+        for i, chunk_id in enumerate(similar["ids"][0]):
+            meta = similar["metadatas"][0][i]
+            source = meta.get("source", "")
+
+            if meta.get("doc_id") == doc_id:
+                continue
+            if source in seen_sources:
+                continue
+            seen_sources.add(source)
+
+            distance = similar["distances"][0][i] if similar["distances"] else 0
+            similarity = max(0, 1.0 - distance)
+
+            output.append({
+                "source": source,
+                "filename": meta.get("filename", ""),
+                "category": meta.get("category", ""),
+                "similarity": round(similarity, 4),
+                "preview": (similar["documents"][0][i] or "")[:200],
+            })
+
+            if len(output) >= max_results:
+                break
+
+        return output
+
+    def evaluate_retrieval(self, test_cases: List[Dict[str, str]]) -> Dict[str, Any]:
+        """Evaluate retrieval quality with test queries. Returns MRR@5, Recall@5, Precision@5."""
+        per_query = []
+        mrr_sum = 0.0
+        recall_sum = 0.0
+        k = 5
+
+        for tc in test_cases:
+            query = tc.get("query", "")
+            expected = tc.get("expected_filepath", "")
+
+            results = self.query(query, max_results=k)
+
+            found_rank = None
+            for i, r in enumerate(results):
+                if expected in r.get("source", ""):
+                    found_rank = i + 1
+                    break
+
+            rr = 1.0 / found_rank if found_rank else 0.0
+            recall = 1.0 if found_rank else 0.0
+
+            mrr_sum += rr
+            recall_sum += recall
+
+            per_query.append({
+                "query": query,
+                "expected": expected,
+                "found_at_rank": found_rank,
+                "reciprocal_rank": round(rr, 4),
+                "top_result": results[0]["source"] if results else "none",
+            })
+
+        n = len(test_cases) if test_cases else 1
+        return {
+            "total_queries": len(test_cases),
+            "mrr_at_5": round(mrr_sum / n, 4),
+            "recall_at_5": round(recall_sum / n, 4),
+            "per_query": per_query,
+        }
+
+    # =========================================================================
+    # Stats & Metadata
+    # =========================================================================
 
     def list_categories(self) -> Dict[str, int]:
         """List all categories with document counts"""
@@ -977,15 +1234,13 @@ class KnowledgeOrchestrator:
             "unique_content_hashes": len(self._chunk_hashes),
             "categories": self.list_categories(),
             "supported_formats": config.supported_formats,
-            "embedding_model": config.ollama_model,
+            "embedding_model": config.embedding_model,
+            "embedding_dim": config.embedding_dim,
+            "reranker_model": config.reranker_model if config.reranker_enabled else "disabled",
             "chunk_size": config.chunk_size,
             "chunk_overlap": config.chunk_overlap,
             "query_cache": self.query_cache.stats(),
         }
-
-    # =========================================================================
-    # Metadata persistence
-    # =========================================================================
 
     def _load_metadata(self) -> Dict[str, Dict]:
         """Load index metadata from disk"""
@@ -1009,10 +1264,8 @@ class KnowledgeOrchestrator:
 # MCP Server
 # =============================================================================
 
-# Initialize FastMCP server
 mcp = FastMCP("knowledge-rag")
 
-# Global orchestrator instance (lazy init)
 _orchestrator: Optional[KnowledgeOrchestrator] = None
 
 
@@ -1024,6 +1277,10 @@ def get_orchestrator() -> KnowledgeOrchestrator:
     return _orchestrator
 
 
+# =============================================================================
+# MCP Tools — Existing (6)
+# =============================================================================
+
 @mcp.tool()
 def search_knowledge(
     query: str,
@@ -1032,7 +1289,7 @@ def search_knowledge(
     hybrid_alpha: float = 0.3
 ) -> str:
     """
-    Hybrid search combining semantic search + BM25 keyword search.
+    Hybrid search combining semantic search + BM25 keyword search with cross-encoder reranking.
 
     Args:
         query: Search query text
@@ -1043,49 +1300,28 @@ def search_knowledge(
     Returns:
         JSON string with search results including content, source, relevance score, and search method used
     """
-    # Input validation
     if not query or not query.strip():
-        return json.dumps({
-            "status": "error",
-            "message": "Query cannot be empty"
-        })
+        return json.dumps({"status": "error", "message": "Query cannot be empty"})
 
-    # Clamp max_results to valid range
     max_results = max(1, min(max_results or 5, config.max_results))
+    hybrid_alpha = max(0.0, min(hybrid_alpha if hybrid_alpha is not None else 0.3, 1.0))
 
-    # Clamp hybrid_alpha to valid range
-    hybrid_alpha = max(0.0, min(hybrid_alpha if hybrid_alpha is not None else 0.5, 1.0))
-
-    # Validate category if provided
     valid_categories = list(config.keyword_routes.keys()) + ["general"]
     if category and category not in valid_categories:
-        return json.dumps({
-            "status": "error",
-            "message": f"Invalid category '{category}'. Valid categories: {', '.join(valid_categories)}"
-        })
+        return json.dumps({"status": "error", "message": f"Invalid category '{category}'. Valid: {', '.join(valid_categories)}"})
 
     orchestrator = get_orchestrator()
-    results = orchestrator.query(
-        query.strip(),
-        max_results=max_results,
-        category_filter=category,
-        hybrid_alpha=hybrid_alpha
-    )
+    results = orchestrator.query(query.strip(), max_results=max_results, category_filter=category, hybrid_alpha=hybrid_alpha)
 
     if not results:
-        return json.dumps({
-            "status": "no_results",
-            "query": query,
-            "message": "No relevant documents found. Try a different query or check if documents are indexed."
-        })
+        return json.dumps({"status": "no_results", "query": query, "message": "No relevant documents found."})
 
-    cache_stats = orchestrator.query_cache.stats()
     return json.dumps({
         "status": "success",
         "query": query,
         "hybrid_alpha": hybrid_alpha,
         "result_count": len(results),
-        "cache_hit_rate": cache_stats["hit_rate"],
+        "cache_hit_rate": orchestrator.query_cache.stats()["hit_rate"],
         "results": results
     }, indent=2, ensure_ascii=False)
 
@@ -1105,15 +1341,9 @@ def get_document(filepath: str) -> str:
     doc = orchestrator.get_document(filepath)
 
     if not doc:
-        return json.dumps({
-            "status": "error",
-            "message": f"Document not found or could not be read: {filepath}"
-        })
+        return json.dumps({"status": "error", "message": f"Document not found: {filepath}"})
 
-    return json.dumps({
-        "status": "success",
-        "document": doc
-    }, indent=2, ensure_ascii=False)
+    return json.dumps({"status": "success", "document": doc}, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -1122,10 +1352,8 @@ def reindex_documents(force: bool = False, full_rebuild: bool = False) -> str:
     Index or reindex all documents in the knowledge base.
 
     Args:
-        force: If True, smart reindex (detects new/changed/deleted files + rebuilds BM25).
-               FAST — only re-embeds new or changed documents.
-        full_rebuild: If True, nuclear rebuild (deletes everything and re-embeds ALL chunks).
-                      EXTREMELY SLOW — only use if ChromaDB is corrupted or embedding model changed.
+        force: If True, smart reindex (detects changes + rebuilds BM25). FAST.
+        full_rebuild: If True, nuclear rebuild (deletes everything, re-embeds ALL). Use if model changed.
 
     Returns:
         JSON string with indexing statistics
@@ -1142,29 +1370,15 @@ def reindex_documents(force: bool = False, full_rebuild: bool = False) -> str:
         stats = orchestrator.index_all()
         operation = "incremental_index"
 
-    return json.dumps({
-        "status": "success",
-        "operation": operation,
-        "stats": stats
-    }, indent=2, ensure_ascii=False)
+    return json.dumps({"status": "success", "operation": operation, "stats": stats}, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
 def list_categories() -> str:
-    """
-    List all document categories with their document counts.
-
-    Returns:
-        JSON string with categories and counts
-    """
+    """List all document categories with their document counts."""
     orchestrator = get_orchestrator()
     categories = orchestrator.list_categories()
-
-    return json.dumps({
-        "status": "success",
-        "categories": categories,
-        "total_documents": sum(categories.values())
-    }, indent=2)
+    return json.dumps({"status": "success", "categories": categories, "total_documents": sum(categories.values())}, indent=2)
 
 
 @mcp.tool()
@@ -1174,36 +1388,188 @@ def list_documents(category: str = None) -> str:
 
     Args:
         category: Optional category filter
-
-    Returns:
-        JSON string with document list
     """
     orchestrator = get_orchestrator()
     docs = orchestrator.list_documents(category=category)
-
-    return json.dumps({
-        "status": "success",
-        "filter": category or "all",
-        "count": len(docs),
-        "documents": docs
-    }, indent=2, ensure_ascii=False)
+    return json.dumps({"status": "success", "filter": category or "all", "count": len(docs), "documents": docs}, indent=2, ensure_ascii=False)
 
 
 @mcp.tool()
 def get_index_stats() -> str:
-    """
-    Get statistics about the knowledge base index.
-
-    Returns:
-        JSON string with index statistics
-    """
+    """Get statistics about the knowledge base index."""
     orchestrator = get_orchestrator()
     stats = orchestrator.get_stats()
+    return json.dumps({"status": "success", "stats": stats}, indent=2)
+
+
+# =============================================================================
+# MCP Tools — New (6)
+# =============================================================================
+
+@mcp.tool()
+def add_document(content: str, filepath: str, category: str = "general") -> str:
+    """
+    Add a new document to the knowledge base from raw content.
+
+    Saves the content to the documents directory and indexes it immediately.
+
+    Args:
+        content: Full text content of the document
+        filepath: Relative path within documents dir (e.g., "security/new-technique.md")
+        category: Document category (security, ctf, logscale, development, general)
+
+    Returns:
+        JSON string with indexing results
+    """
+    if not content or not content.strip():
+        return json.dumps({"status": "error", "message": "Content cannot be empty"})
+    if not filepath or not filepath.strip():
+        return json.dumps({"status": "error", "message": "Filepath cannot be empty"})
+
+    orchestrator = get_orchestrator()
+    result = orchestrator.add_document_from_content(content.strip(), filepath.strip(), category)
+
+    if "error" in result:
+        return json.dumps({"status": "error", "message": result["error"]})
+
+    return json.dumps({"status": "success", **result}, indent=2)
+
+
+@mcp.tool()
+def update_document(filepath: str, content: str) -> str:
+    """
+    Update an existing document in the knowledge base.
+
+    Removes old chunks and re-indexes with new content.
+
+    Args:
+        filepath: Full path to the document file
+        content: New content for the document
+
+    Returns:
+        JSON string with update results
+    """
+    if not filepath:
+        return json.dumps({"status": "error", "message": "Filepath required"})
+    if not content or not content.strip():
+        return json.dumps({"status": "error", "message": "Content cannot be empty"})
+
+    orchestrator = get_orchestrator()
+    result = orchestrator.update_document_content(filepath, content.strip())
+
+    if "error" in result:
+        return json.dumps({"status": "error", "message": result["error"]})
+
+    return json.dumps({"status": "success", **result}, indent=2)
+
+
+@mcp.tool()
+def remove_document(filepath: str, delete_file: bool = False) -> str:
+    """
+    Remove a document from the knowledge base index.
+
+    Args:
+        filepath: Path to the document file
+        delete_file: If True, also delete the file from disk (default: False)
+
+    Returns:
+        JSON string with removal results
+    """
+    if not filepath:
+        return json.dumps({"status": "error", "message": "Filepath required"})
+
+    orchestrator = get_orchestrator()
+    result = orchestrator.remove_document_by_path(filepath, delete_file=delete_file)
+
+    if "error" in result:
+        return json.dumps({"status": "error", "message": result["error"]})
+
+    return json.dumps({"status": "success", **result}, indent=2)
+
+
+@mcp.tool()
+def add_from_url(url: str, category: str = "general", title: str = None) -> str:
+    """
+    Fetch content from a URL and add it to the knowledge base.
+
+    Fetches the page, strips HTML, converts to markdown, and indexes.
+
+    Args:
+        url: URL to fetch content from
+        category: Document category (default: general)
+        title: Optional title for the document (auto-detected if not provided)
+
+    Returns:
+        JSON string with indexing results
+    """
+    if not url or not url.strip():
+        return json.dumps({"status": "error", "message": "URL cannot be empty"})
+
+    orchestrator = get_orchestrator()
+    result = orchestrator.add_from_url(url.strip(), category, title)
+
+    if "error" in result:
+        return json.dumps({"status": "error", "message": result["error"]})
+
+    return json.dumps({"status": "success", **result}, indent=2)
+
+
+@mcp.tool()
+def search_similar(filepath: str, max_results: int = 5) -> str:
+    """
+    Find documents similar to a given document.
+
+    Uses the document's embedding to find semantically similar documents.
+
+    Args:
+        filepath: Path to the reference document
+        max_results: Number of similar documents to return (default: 5)
+
+    Returns:
+        JSON string with list of similar documents and similarity scores
+    """
+    if not filepath:
+        return json.dumps({"status": "error", "message": "Filepath required"})
+
+    max_results = max(1, min(max_results or 5, 20))
+
+    orchestrator = get_orchestrator()
+    results = orchestrator.search_similar(filepath, max_results=max_results)
+
+    if not results:
+        return json.dumps({"status": "no_results", "message": "No similar documents found or document not indexed"})
 
     return json.dumps({
         "status": "success",
-        "stats": stats
-    }, indent=2)
+        "reference": filepath,
+        "count": len(results),
+        "similar_documents": results
+    }, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+def evaluate_retrieval(test_cases: str) -> str:
+    """
+    Evaluate retrieval quality with test queries.
+
+    Args:
+        test_cases: JSON string of test cases. Format: [{"query": "search term", "expected_filepath": "path/to/doc.md"}, ...]
+
+    Returns:
+        JSON string with MRR@5, Recall@5, and per-query results
+    """
+    try:
+        cases = json.loads(test_cases) if isinstance(test_cases, str) else test_cases
+    except json.JSONDecodeError:
+        return json.dumps({"status": "error", "message": "Invalid JSON for test_cases"})
+
+    if not isinstance(cases, list) or not cases:
+        return json.dumps({"status": "error", "message": "test_cases must be a non-empty JSON array"})
+
+    orchestrator = get_orchestrator()
+    results = orchestrator.evaluate_retrieval(cases)
+
+    return json.dumps({"status": "success", **results}, indent=2)
 
 
 # =============================================================================
@@ -1212,16 +1578,19 @@ def get_index_stats() -> str:
 
 def main():
     """Run the MCP server"""
-    import sys
-
-    # Auto-index on startup if empty
     orchestrator = get_orchestrator()
-    if orchestrator.collection.count() == 0:
+
+    # Migration: auto-rebuild if embedding dimension changed
+    if orchestrator._needs_rebuild:
+        print("[MIGRATION] Running nuclear rebuild for embedding model change...")
+        stats = orchestrator.nuclear_rebuild()
+        print(f"[MIGRATION] Rebuild complete: {stats['indexed']} docs, "
+              f"{stats['chunks_added']} chunks in {stats.get('elapsed_seconds', '?')}s")
+    elif orchestrator.collection.count() == 0:
         print("[INFO] No documents indexed. Running initial indexing...")
         stats = orchestrator.index_all()
         print(f"[INFO] Indexed {stats['indexed']} documents with {stats['chunks_added']} chunks")
 
-    # Run MCP server
     mcp.run()
 
 

@@ -2,51 +2,112 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-2.2.0-blue.svg)
+![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
-![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 
 **Local RAG (Retrieval-Augmented Generation) System for Claude Code**
 
-*Hybrid search (Semantic + BM25) with keyword routing for your personal knowledge base*
+*Hybrid search with cross-encoder reranking, markdown-aware chunking, and query expansion for your personal knowledge base*
 
-[Features](#features) | [Installation](#installation) | [Usage](#usage) | [API Reference](#api-reference) | [Architecture](#architecture)
+[Breaking Changes](#breaking-changes-v2x--v30) | [What's New](#whats-new-in-v300) | [Installation](#installation) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
 ---
 
-## What's New in v2.2.0
+## Breaking Changes (v2.x → v3.0)
 
-### Search Performance Fix
-- **`hybrid_alpha=0` now skips Ollama entirely** - pure BM25 keyword search is instant (no embedding generation)
-- **`hybrid_alpha=1.0` skips BM25** - pure semantic search without keyword overhead
-- **Default changed from 0.5 to 0.3** - keyword-heavy by default for faster responses
+> **v3.0 is a major release.** If you are upgrading from v2.x, read this section first.
 
-### Expanded Keyword Routing
-- **40+ new keywords** for `redteam` category: GTFOBins, LOLBAS, BYOVD, SQLi, XSS, SSTI, hashcat, Kerberoast, BloodHound, ADCS, etc.
-- Better routing accuracy for offensive security queries
+| Change | v2.x | v3.0 | Action Required |
+|--------|------|------|-----------------|
+| **Embedding engine** | Ollama (external server) | FastEmbed (ONNX in-process) | Uninstall Ollama if no longer needed. No server to manage. |
+| **Embedding model** | nomic-embed-text (768D) | BAAI/bge-small-en-v1.5 (384D) | Auto-migration on first startup. Nuclear rebuild runs automatically. |
+| **Embedding dimensions** | 768 | 384 | Existing ChromaDB data is incompatible. Auto-rebuild handles this. |
+| **Dependencies** | `ollama>=0.6.0` | `fastembed>=0.4.0`, `requests`, `beautifulsoup4` | Run `pip install -r requirements.txt` in your venv. |
+| **MCP tools** | 6 tools | 12 tools | No action. New tools are additive. |
+| **Default hybrid_alpha** | 0.3 | 0.3 | No change. |
 
-### Previous (v2.0.0)
-- Hybrid search (Semantic + BM25) with Reciprocal Rank Fusion
-- Word boundary keyword routing (no false positives)
-- Parallel embeddings (4x faster indexing)
+### Migration Steps
+
+```bash
+# 1. Pull the latest code
+git pull origin main
+
+# 2. Activate your virtual environment
+# Windows:
+.\venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+# 3. Install new dependencies
+pip install -r requirements.txt
+
+# 4. Restart Claude Code — the server auto-detects dimension mismatch
+#    and triggers a nuclear rebuild on first startup (re-embeds everything)
+```
+
+The first startup after upgrading will take longer than usual because:
+1. FastEmbed downloads the BAAI/bge-small-en-v1.5 model (~50MB, cached in `~/.cache/fastembed/`)
+2. All documents are re-embedded with the new 384-dim model
+3. The cross-encoder reranker model is downloaded on first query (~25MB)
+
+After the initial rebuild, startup and queries are faster than v2.x because there is no Ollama server dependency.
+
+---
+
+## What's New in v3.0.0
+
+### Ollama Removed — Zero External Dependencies
+
+FastEmbed replaces Ollama entirely. Embeddings and reranking run in-process via ONNX Runtime. No server to start, no port to check, no process to manage. The embedding model downloads automatically on first run and is cached locally.
+
+### Cross-Encoder Reranking
+
+After hybrid RRF fusion produces initial candidates, a cross-encoder (Xenova/ms-marco-MiniLM-L-6-v2) re-scores query-document pairs jointly. This dramatically improves precision for ambiguous queries where bi-encoder similarity alone is insufficient.
+
+### Markdown-Aware Chunking
+
+`.md` files are now split by `##` and `###` header boundaries instead of fixed 1000-character windows. Each section becomes a semantically coherent chunk. Sections larger than `chunk_size` are sub-chunked with overlap. Non-markdown files still use the standard fixed-size chunker.
+
+### Query Expansion
+
+54 security-term synonym mappings expand abbreviated queries before BM25 search. Searching for "sqli" automatically includes "sql injection"; "privesc" includes "privilege escalation"; "pth" includes "pass-the-hash". The full expansion table is in `config.py`.
+
+### 6 New MCP Tools (12 Total)
+
+| Tool | Description |
+|------|-------------|
+| `add_document` | Add a document from raw content string |
+| `update_document` | Update an existing document (re-chunks and re-indexes) |
+| `remove_document` | Remove a document from the index (optionally delete file) |
+| `add_from_url` | Fetch a URL, strip HTML, convert to markdown, and index |
+| `search_similar` | Find documents similar to a given document by embedding |
+| `evaluate_retrieval` | Evaluate retrieval quality with test cases (MRR@5, Recall@5) |
+
+### Auto-Migration
+
+On startup, the server detects if stored embeddings have a different dimension than the configured model (768 vs 384). If mismatch is found, a nuclear rebuild runs automatically — no manual intervention required.
 
 ---
 
 ## Overview
 
-Knowledge RAG is a **100% local** semantic search system that integrates with Claude Code via MCP (Model Context Protocol). It enables Claude to search through your documents (PDFs, Markdown, code, etc.) and retrieve relevant context for answering questions.
+Knowledge RAG is a **100% local** hybrid search system that integrates with Claude Code via MCP (Model Context Protocol). It enables Claude to search through your documents (Markdown, PDFs, code, text) and retrieve relevant context using a combination of semantic embeddings, BM25 keyword matching, and cross-encoder reranking.
 
 ### Why Knowledge RAG?
 
-- **Privacy First**: All processing happens locally - no data leaves your machine
-- **Hybrid Search**: Combines semantic understanding with exact keyword matching
-- **Multi-Format**: Supports MD, PDF, TXT, Python, JSON files
-- **Smart Routing**: Keyword-based routing with word boundaries ensures accurate category matching
-- **Claude Integration**: Native MCP tools for seamless Claude Code integration
-- **Fast**: Parallel embedding generation + vector search with ChromaDB
+- **Zero External Dependencies**: Everything runs in-process. No Ollama, no API keys, no servers to manage.
+- **Hybrid Search + Reranking**: Semantic embeddings + BM25 keywords fused with RRF, then reranked by a cross-encoder for maximum precision.
+- **Markdown-Aware**: `.md` files are chunked by section headers, preserving semantic coherence.
+- **Query Expansion**: 54 security-term synonyms ensure abbreviated queries find relevant content.
+- **Privacy First**: All processing happens locally. No data leaves your machine.
+- **Multi-Format**: Supports MD, PDF, TXT, Python, JSON files.
+- **Smart Routing**: Keyword-based routing with word boundaries for accurate category filtering.
+- **Incremental Indexing**: Only re-indexes new or modified files. Instant startup for unchanged knowledge bases.
+- **CRUD via MCP**: Add, update, remove documents directly from Claude Code. Fetch URLs and index them.
 
 ---
 
@@ -54,15 +115,24 @@ Knowledge RAG is a **100% local** semantic search system that integrates with Cl
 
 | Feature | Description |
 |---------|-------------|
-| **Hybrid Search** | Semantic + BM25 keyword search with RRF fusion |
+| **Hybrid Search** | Semantic + BM25 keyword search with Reciprocal Rank Fusion |
+| **Cross-Encoder Reranker** | Xenova/ms-marco-MiniLM-L-6-v2 re-scores top candidates for precision |
+| **Query Expansion** | 54 security-term synonym mappings (sqli, privesc, pth, etc.) |
+| **Markdown-Aware Chunking** | `.md` files split by `##`/`###` sections instead of fixed windows |
+| **In-Process Embeddings** | FastEmbed ONNX Runtime (BAAI/bge-small-en-v1.5, 384D) |
 | **Keyword Routing** | Word-boundary aware routing for domain-specific queries |
-| **Multi-Format Parser** | PDF, Markdown, TXT, Python, JSON support |
-| **Chunking with Overlap** | Smart text splitting with context preservation |
-| **Category Organization** | Organize docs by security, development, logscale, etc. |
-| **MCP Integration** | Native Claude Code tools |
+| **Multi-Format Parser** | PDF (PyMuPDF), Markdown, TXT, Python, JSON |
+| **Category Organization** | Organize docs by security, development, ctf, logscale, etc. |
+| **Incremental Indexing** | Change detection via mtime/size. Only re-indexes modified files. |
+| **Chunk Deduplication** | SHA256 content hashing prevents duplicate chunks |
+| **Query Cache** | LRU cache with 5-min TTL for instant repeat queries |
+| **Document CRUD** | Add, update, remove documents via MCP tools |
+| **URL Ingestion** | Fetch URLs, strip HTML, convert to markdown, index |
+| **Similarity Search** | Find documents similar to a reference document |
+| **Retrieval Evaluation** | Built-in MRR@5 and Recall@5 metrics |
+| **Auto-Migration** | Detects embedding dimension mismatch and rebuilds automatically |
 | **Persistent Storage** | ChromaDB with DuckDB backend |
-| **Local Embeddings** | Ollama + nomic-embed-text (768 dimensions) |
-| **Parallel Processing** | Multi-threaded embedding generation |
+| **12 MCP Tools** | Full CRUD + search + evaluation via Claude Code |
 
 ---
 
@@ -72,44 +142,46 @@ Knowledge RAG is a **100% local** semantic search system that integrates with Cl
 
 ```mermaid
 flowchart TB
-    subgraph MCP["🔌 MCP SERVER (FastMCP)"]
+    subgraph MCP["MCP SERVER (FastMCP)"]
         direction TB
-        TOOLS["MCP Tools<br/>search_knowledge | get_document<br/>reindex_documents | list_categories"]
+        TOOLS["12 MCP Tools<br/>search | get | add | update | remove<br/>reindex | list | stats | url | similar | evaluate"]
     end
 
-    subgraph SEARCH["🔍 HYBRID SEARCH ENGINE"]
+    subgraph SEARCH["HYBRID SEARCH ENGINE"]
         direction LR
         ROUTER["Keyword Router<br/>(word boundaries)"]
         SEMANTIC["Semantic Search<br/>(ChromaDB)"]
-        BM25["BM25 Keyword<br/>(rank-bm25)"]
+        BM25["BM25 Keyword<br/>(rank-bm25 + expansion)"]
         RRF["Reciprocal Rank<br/>Fusion (RRF)"]
+        RERANK["Cross-Encoder<br/>Reranker"]
 
         ROUTER --> SEMANTIC
         ROUTER --> BM25
         SEMANTIC --> RRF
         BM25 --> RRF
+        RRF --> RERANK
     end
 
-    subgraph STORAGE["💾 STORAGE LAYER"]
+    subgraph STORAGE["STORAGE LAYER"]
         direction LR
         CHROMA[("ChromaDB<br/>Vector Database")]
         COLLECTIONS["Collections<br/>security | ctf<br/>logscale | development"]
         CHROMA --- COLLECTIONS
     end
 
-    subgraph EMBED["🧠 EMBEDDINGS"]
-        OLLAMA["Ollama<br/>nomic-embed-text<br/>(768 dimensions)"]
-        PARALLEL["Parallel Processing<br/>(4 workers)"]
-        OLLAMA --- PARALLEL
+    subgraph EMBED["EMBEDDINGS (In-Process)"]
+        FASTEMBED["FastEmbed ONNX<br/>BAAI/bge-small-en-v1.5<br/>(384 dimensions)"]
+        CROSSENC["Cross-Encoder<br/>ms-marco-MiniLM-L-6-v2"]
+        FASTEMBED --- CROSSENC
     end
 
-    subgraph INGEST["📄 DOCUMENT INGESTION"]
+    subgraph INGEST["DOCUMENT INGESTION"]
         PARSERS["Parsers<br/>MD | PDF | TXT | PY | JSON"]
-        CHUNKER["Chunking<br/>1000 chars + 200 overlap"]
+        CHUNKER["Chunking<br/>MD: section-aware<br/>Other: 1000 chars + 200 overlap"]
         PARSERS --> CHUNKER
     end
 
-    CLAUDE["☁️ Claude Code"] --> MCP
+    CLAUDE["Claude Code"] --> MCP
     MCP --> SEARCH
     SEARCH --> STORAGE
     STORAGE --> EMBED
@@ -117,53 +189,19 @@ flowchart TB
     EMBED --> STORAGE
 ```
 
-### Data Flow
-
-#### 1. Document Ingestion Flow
-
-```mermaid
-flowchart LR
-    subgraph INPUT["📁 Input"]
-        FILES["documents/<br/>├── security/<br/>├── logscale/<br/>├── ctf/<br/>└── development/"]
-    end
-
-    subgraph PARSE["📖 Parse"]
-        MD["Markdown<br/>Parser"]
-        PDF["PDF Parser<br/>(PyMuPDF)"]
-        TXT["Text<br/>Parser"]
-        CODE["Code Parser<br/>(PY/JSON)"]
-    end
-
-    subgraph CHUNK["✂️ Chunk"]
-        SPLIT["Text Splitter<br/>1000 chars"]
-        OVERLAP["Overlap<br/>200 chars"]
-        SPLIT --> OVERLAP
-    end
-
-    subgraph EMBED["🧠 Embed"]
-        PARALLEL["ThreadPoolExecutor<br/>(4 workers)"]
-        OLLAMA["Ollama API<br/>nomic-embed-text"]
-        PARALLEL --> OLLAMA
-    end
-
-    subgraph STORE["💾 Store"]
-        CHROMADB[("ChromaDB")]
-        BM25IDX["BM25 Index"]
-    end
-
-    FILES --> MD & PDF & TXT & CODE
-    MD & PDF & TXT & CODE --> CHUNK
-    CHUNK --> EMBED
-    EMBED --> STORE
-```
-
-#### 2. Query Processing Flow (Hybrid Search)
+### Query Processing Flow
 
 ```mermaid
 flowchart TB
-    QUERY["🔍 User Query<br/>'mimikatz credential dump'"] --> ROUTER
+    QUERY["User Query<br/>'mimikatz credential dump'"] --> EXPAND
 
-    subgraph ROUTING["📍 Keyword Routing"]
+    subgraph EXPANSION["Query Expansion"]
+        EXPAND["Synonym Expansion<br/>mimikatz -> mimikatz, sekurlsa, logonpasswords"]
+    end
+
+    EXPAND --> ROUTER
+
+    subgraph ROUTING["Keyword Routing"]
         ROUTER["Keyword Router"]
         MATCH{"Word Boundary<br/>Match?"}
         CATEGORY["Filter: redteam"]
@@ -174,18 +212,18 @@ flowchart TB
         MATCH -->|No| NOFILTER
     end
 
-    subgraph HYBRID["⚡ Hybrid Search"]
+    subgraph HYBRID["Hybrid Search"]
         direction LR
-        SEMANTIC["Semantic Search<br/>(ChromaDB)<br/>Conceptual similarity"]
-        BM25["BM25 Search<br/>(rank-bm25)<br/>Exact term matching"]
+        SEMANTIC["Semantic Search<br/>(ChromaDB embeddings)<br/>Conceptual similarity"]
+        BM25["BM25 Search<br/>(expanded query)<br/>Exact term matching"]
     end
 
-    subgraph FUSION["🔀 Result Fusion"]
-        RRF["Reciprocal Rank Fusion<br/>score = Σ 1/(k + rank)"]
-        COMBINE["Combine Rankings<br/>+ Deduplicate"]
-        SORT["Sort by<br/>Combined Score"]
+    subgraph FUSION["Result Fusion + Reranking"]
+        RRF["Reciprocal Rank Fusion<br/>score = alpha * 1/(k+rank_sem)<br/>+ (1-alpha) * 1/(k+rank_bm25)"]
+        RERANK["Cross-Encoder Reranker<br/>Re-scores top 3x candidates<br/>query+doc pair scoring"]
+        SORT["Sort by Reranker Score<br/>Normalize to 0-1"]
 
-        RRF --> COMBINE --> SORT
+        RRF --> RERANK --> SORT
     end
 
     CATEGORY --> HYBRID
@@ -193,27 +231,66 @@ flowchart TB
     SEMANTIC --> RRF
     BM25 --> RRF
 
-    SORT --> RESULTS["📋 Results<br/>search_method: hybrid|semantic|keyword<br/>semantic_rank + bm25_rank"]
+    SORT --> RESULTS["Results<br/>search_method: hybrid|semantic|keyword<br/>score + reranker_score + raw_rrf_score"]
 ```
 
-#### 3. hybrid_alpha Parameter Effect
+### Document Ingestion Flow
+
+```mermaid
+flowchart LR
+    subgraph INPUT["Input"]
+        FILES["documents/<br/>├── security/<br/>├── development/<br/>├── ctf/<br/>└── general/"]
+    end
+
+    subgraph PARSE["Parse"]
+        MD["Markdown<br/>Parser"]
+        PDF["PDF Parser<br/>(PyMuPDF)"]
+        TXT["Text<br/>Parser"]
+        CODE["Code Parser<br/>(PY/JSON)"]
+    end
+
+    subgraph CHUNK["Chunk"]
+        MDSPLIT["MD: Section-Aware<br/>Split at ## headers"]
+        TXTSPLIT["Other: Fixed-Size<br/>1000 chars + 200 overlap"]
+        DEDUP["SHA256 Dedup<br/>Skip duplicate content"]
+    end
+
+    subgraph EMBED["Embed"]
+        FASTEMBED["FastEmbed ONNX<br/>bge-small-en-v1.5<br/>(384D, in-process)"]
+    end
+
+    subgraph STORE["Store"]
+        CHROMADB[("ChromaDB")]
+        BM25IDX["BM25 Index"]
+    end
+
+    FILES --> MD & PDF & TXT & CODE
+    MD --> MDSPLIT
+    PDF & TXT & CODE --> TXTSPLIT
+    MDSPLIT --> DEDUP
+    TXTSPLIT --> DEDUP
+    DEDUP --> EMBED
+    EMBED --> STORE
+```
+
+### hybrid_alpha Parameter Effect
 
 ```mermaid
 flowchart LR
     subgraph ALPHA["hybrid_alpha values"]
-        A0["0.0<br/>Pure BM25<br/>⚡ INSTANT"]
-        A3["0.3 (default)<br/>Keyword-heavy<br/>⚡ Fast"]
+        A0["0.0<br/>Pure BM25<br/>Instant"]
+        A3["0.3 (default)<br/>Keyword-heavy<br/>Fast"]
         A5["0.5<br/>Balanced"]
         A7["0.7<br/>Semantic-heavy"]
-        A10["1.0<br/>Pure Semantic<br/>🐢 Slower"]
+        A10["1.0<br/>Pure Semantic"]
     end
 
     subgraph USE["Best For"]
-        U0["CVEs, tool names<br/>exact matches<br/>NO Ollama needed"]
+        U0["CVEs, tool names<br/>exact matches"]
         U3["Technical queries<br/>specific terms"]
         U5["General queries"]
         U7["Conceptual queries<br/>related topics"]
-        U10["'How to...' questions<br/>Requires Ollama"]
+        U10["'How to...' questions<br/>conceptual search"]
     end
 
     A0 --- U0
@@ -229,75 +306,87 @@ flowchart LR
 
 ### Prerequisites
 
-- Windows 10/11
-- Python 3.11 or 3.12
-- [Ollama](https://ollama.com) (for local embeddings)
+- Python 3.11 or 3.12 (**NOT** 3.13+ due to onnxruntime compatibility)
 - Claude Code CLI
+- ~200MB disk for model cache (auto-downloaded on first run)
 
-### Quick Install (Automated)
+> **Note:** Ollama is no longer required. FastEmbed downloads models automatically.
+
+### Quick Install
+
+#### Windows (PowerShell)
 
 ```powershell
 # Clone the repository
 git clone https://github.com/lyonzin/knowledge-rag.git
 cd knowledge-rag
 
-# Run the installer
-.\install.ps1
+# Create virtual environment
+python -m venv venv
+.\venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### Manual Installation
+#### Linux / macOS
 
-1. **Install Python 3.12**
-   ```powershell
-   # Download from https://www.python.org/downloads/
-   # Or use winget:
-   winget install Python.Python.3.12
-   ```
+```bash
+# Clone the repository
+git clone https://github.com/lyonzin/knowledge-rag.git
+cd knowledge-rag
 
-2. **Install Ollama**
-   ```powershell
-   # Download from https://ollama.com
-   # Or use winget:
-   winget install Ollama.Ollama
-   ```
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
 
-3. **Pull the embedding model**
-   ```powershell
-   ollama pull nomic-embed-text
-   ```
+# Install dependencies
+pip install -r requirements.txt
+```
 
-4. **Clone and setup the project**
-   ```powershell
-   git clone https://github.com/lyonzin/knowledge-rag.git
-   cd knowledge-rag
+### Configure MCP for Claude Code
 
-   # Create virtual environment
-   python -m venv venv
-   .\venv\Scripts\activate
+Add to `~/.claude.json` under `mcpServers`:
 
-   # Install dependencies
-   pip install -r requirements.txt
-   ```
+#### Windows
 
-5. **Configure MCP for Claude Code**
+```json
+{
+  "mcpServers": {
+    "knowledge-rag": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": ["/c", "cd /d C:\\path\\to\\knowledge-rag && .\\venv\\Scripts\\python.exe -m mcp_server.server"],
+      "env": {}
+    }
+  }
+}
+```
 
-   Add to `~/.claude.json` under `mcpServers`:
-   ```json
-   {
-     "mcpServers": {
-       "knowledge-rag": {
-         "type": "stdio",
-         "command": "cmd",
-         "args": ["/c", "cd /d C:\\path\\to\\knowledge-rag && .\\venv\\Scripts\\python.exe -m mcp_server.server"],
-         "env": {}
-       }
-     }
-   }
-   ```
+> **Why `cmd /c cd /d`?** Claude Code may not respect the `cwd` property in MCP configs. This wrapper ensures the working directory is correct before starting the server.
 
-   > **Note**: We use `cmd /c` with `cd /d` to ensure the working directory is set correctly before starting the Python server. This is required because Claude Code may not respect the `cwd` property in MCP configurations.
+#### Linux / macOS
 
-6. **Restart Claude Code**
+```json
+{
+  "mcpServers": {
+    "knowledge-rag": {
+      "type": "stdio",
+      "command": "/path/to/knowledge-rag/venv/bin/python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "/path/to/knowledge-rag",
+      "env": {}
+    }
+  }
+}
+```
+
+### Restart Claude Code
+
+After configuring MCP, restart Claude Code. The server will:
+1. Download the embedding model on first run (~50MB, cached in `~/.cache/fastembed/`)
+2. Auto-index any documents in the `documents/` directory
+3. Be ready for queries
 
 ---
 
@@ -310,92 +399,111 @@ Place your documents in the `documents/` directory, organized by category:
 ```
 documents/
 ├── security/          # Pentest, exploit, vulnerability docs
-│   ├── redteam/       # Red team specific
-│   ├── blueteam/      # Blue team specific
-│   └── RTFM.pdf
-├── logscale/          # LogScale/LQL documentation
-│   └── LQL_REFERENCE.md
-├── ctf/               # CTF writeups and methodology
 ├── development/       # Code, APIs, frameworks
-│   └── api-docs.md
+├── ctf/               # CTF writeups and methodology
+├── logscale/          # LogScale/LQL documentation
 └── general/           # Everything else
-    └── notes.txt
 ```
 
-### Indexing Documents
+Or add documents programmatically via MCP tools:
 
-Documents are automatically indexed when Claude Code starts. To manually reindex:
+```python
+# Add from content
+add_document(
+    content="# My Document\n\nContent here...",
+    filepath="security/my-technique.md",
+    category="security"
+)
 
-```
-# In Claude Code chat:
-Use the reindex_documents tool with force=true to rebuild the index
+# Add from URL
+add_from_url(
+    url="https://example.com/article",
+    category="security",
+    title="Custom Title"
+)
 ```
 
 ### Searching
 
-Simply ask Claude questions! The RAG system automatically provides context:
+Claude uses the RAG system automatically when configured. You can also control search behavior:
 
-```
-User: How do I use formatTime in LogScale?
-Claude: [Uses search_knowledge internally, retrieves relevant chunks]
-        Based on your documentation, formatTime in LogScale...
-```
-
-### Hybrid Search Control
-
-You can control the balance between semantic and keyword search:
-
-```javascript
-// Pure keyword - INSTANT, no Ollama needed (default for exact terms)
+```python
+# Pure keyword search — instant, no embedding needed
 search_knowledge("gtfobins suid", hybrid_alpha=0.0)
 
-// Keyword-heavy (default) - fast, slight semantic boost
-search_knowledge("lolbas certutil", hybrid_alpha=0.3)
+# Keyword-heavy (default) — fast, slight semantic boost
+search_knowledge("mimikatz", hybrid_alpha=0.3)
 
-// Balanced hybrid - both engines equally weighted
+# Balanced hybrid — both engines equally weighted
 search_knowledge("SQL injection techniques", hybrid_alpha=0.5)
 
-// Semantic-heavy - better for conceptual queries
+# Semantic-heavy — better for conceptual queries
 search_knowledge("how to escalate privileges", hybrid_alpha=0.7)
 
-// Pure semantic - Ollama only, no keyword matching
-search_knowledge("how to bypass authentication", hybrid_alpha=1.0)
+# Pure semantic — embedding similarity only
+search_knowledge("lateral movement strategies", hybrid_alpha=1.0)
+```
+
+### Indexing
+
+Documents are automatically indexed on first startup. To manage the index:
+
+```python
+# Incremental: only re-index changed files (fast)
+reindex_documents()
+
+# Smart reindex: detect changes + rebuild BM25
+reindex_documents(force=True)
+
+# Nuclear rebuild: delete everything, re-embed all (use after model change)
+reindex_documents(full_rebuild=True)
+```
+
+### Evaluating Retrieval Quality
+
+```python
+evaluate_retrieval(test_cases='[
+    {"query": "sql injection", "expected_filepath": "security/sqli-guide.md"},
+    {"query": "privilege escalation", "expected_filepath": "security/privesc.md"}
+]')
+# Returns: MRR@5, Recall@5, per-query results
 ```
 
 ---
 
 ## API Reference
 
-### MCP Tools
+### Existing Tools (6)
 
 #### `search_knowledge`
 
-Hybrid search combining semantic search + BM25 keyword search.
+Hybrid search combining semantic search + BM25 keyword search with cross-encoder reranking.
 
-**Parameters:**
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `query` | string | required | Search query text |
-| `max_results` | int | 5 | Maximum results (1-20) |
-| `category` | string | null | Filter by category |
-| `hybrid_alpha` | float | 0.3 | Balance: 0.0=keyword only, 1.0=semantic only |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | string | required | Search query text (1-3 keywords recommended) |
+| `max_results` | int | 5 | Maximum results to return (1-20) |
+| `category` | string | null | Filter by category (security, ctf, logscale, development, general, redteam, blueteam) |
+| `hybrid_alpha` | float | 0.3 | Balance: 0.0 = keyword only, 1.0 = semantic only |
 
-**Returns:** JSON with search results including content, source, relevance score, and search method.
+**Returns:**
 
-**Example:**
 ```json
 {
   "status": "success",
   "query": "mimikatz credential dump",
   "hybrid_alpha": 0.5,
   "result_count": 3,
+  "cache_hit_rate": "0.0%",
   "results": [
     {
       "content": "Mimikatz can extract credentials from memory...",
-      "source": "C:/docs/security/redteam/credential-attacks.pdf",
-      "filename": "credential-attacks.pdf",
-      "category": "redteam",
-      "score": 0.016393,
+      "source": "documents/security/credential-attacks.md",
+      "filename": "credential-attacks.md",
+      "category": "security",
+      "score": 0.9823,
+      "raw_rrf_score": 0.016393,
+      "reranker_score": 0.987654,
       "semantic_rank": 2,
       "bm25_rank": 1,
       "search_method": "hybrid",
@@ -411,210 +519,348 @@ Hybrid search combining semantic search + BM25 keyword search.
 - `semantic`: Found only by semantic search
 - `keyword`: Found only by BM25 keyword search
 
+---
+
 #### `get_document`
 
 Retrieve the full content of a specific document.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
-| `filepath` | string | Path to the document |
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `filepath` | string | Path to the document file |
 
-**Returns:** JSON with document content and metadata.
+**Returns:** JSON with document content, metadata, keywords, and chunk count.
+
+---
 
 #### `reindex_documents`
 
 Index or reindex all documents in the knowledge base.
 
-**Parameters:**
-| Name | Type | Default | Description |
-|------|------|---------|-------------|
-| `force` | bool | false | If true, clears and rebuilds entire index (both ChromaDB and BM25) |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `force` | bool | false | Smart reindex: detects changes, rebuilds BM25. Fast. |
+| `full_rebuild` | bool | false | Nuclear rebuild: deletes everything, re-embeds all documents. Use after model change. |
 
-**Returns:** JSON with indexing statistics.
+**Returns:** JSON with indexing statistics (indexed, updated, skipped, deleted, chunks_added, chunks_removed, dedup_skipped, elapsed_seconds).
+
+---
 
 #### `list_categories`
 
 List all document categories with their document counts.
 
 **Returns:**
+
 ```json
 {
   "status": "success",
   "categories": {
     "security": 52,
-    "Detections_Rules ": 12,
-    "redteam": 3,
-    "blueteam": 3,
-    "ctf": 2,
-    "general": 1
+    "development": 8,
+    "ctf": 12,
+    "general": 3
   },
-  "total_documents": 73
+  "total_documents": 75
 }
 ```
+
+---
 
 #### `list_documents`
 
 List all indexed documents, optionally filtered by category.
 
-**Parameters:**
-| Name | Type | Description |
-|------|------|-------------|
+| Parameter | Type | Description |
+|-----------|------|-------------|
 | `category` | string | Optional category filter |
+
+**Returns:** JSON array of documents with id, source, category, format, chunks, and keywords.
+
+---
 
 #### `get_index_stats`
 
 Get statistics about the knowledge base index.
 
 **Returns:**
+
 ```json
 {
   "status": "success",
   "stats": {
-    "total_documents": 73,
+    "total_documents": 75,
     "total_chunks": 9256,
-    "categories": {"security": 52, "logscale": 12, ...},
-    "embedding_model": "nomic-embed-text",
+    "unique_content_hashes": 9100,
+    "categories": {"security": 52, "development": 8},
+    "supported_formats": [".md", ".txt", ".pdf", ".py", ".json"],
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "embedding_dim": 384,
+    "reranker_model": "Xenova/ms-marco-MiniLM-L-6-v2",
     "chunk_size": 1000,
-    "chunk_overlap": 200
+    "chunk_overlap": 200,
+    "query_cache": {
+      "size": 12,
+      "max_size": 100,
+      "ttl_seconds": 300,
+      "hits": 45,
+      "misses": 23,
+      "hit_rate": "66.2%"
+    }
   }
 }
 ```
 
 ---
 
-## Configuration
+### New Tools (6)
 
-### Keyword Routing
+#### `add_document`
 
-The system uses keyword routing with word boundaries to improve search accuracy.
+Add a new document to the knowledge base from raw content. Saves the file to the documents directory and indexes it immediately.
 
-```mermaid
-flowchart TB
-    QUERY["Query: 'CVE-2021-44228 log4j'"] --> EXTRACT["Extract Keywords"]
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `content` | string | required | Full text content of the document |
+| `filepath` | string | required | Relative path within documents dir (e.g., `security/new-technique.md`) |
+| `category` | string | "general" | Document category |
 
-    subgraph ROUTES["🏷️ Keyword Routes (config.py)"]
-        SEC["security<br/>anti-bot, waf bypass, cloudflare..."]
-        RED["redteam<br/>pentest, exploit, payload..."]
-        BLUE["blueteam<br/>detection, sigma, yara..."]
-        CTF["ctf<br/>ctf, flag, hackthebox..."]
-        LOG["logscale<br/>logscale, humio, lql..."]
-        DEV["development<br/>python, javascript, api..."]
-    end
+**Returns:**
 
-    EXTRACT --> CHECK{"Word Boundary<br/>Check (\\b)"}
-
-    CHECK -->|"'api' in query?"| BOUNDARY["Does NOT match<br/>'RAPID' or 'capital'"]
-    CHECK -->|"'log4j' matches"| MATCHED["✓ Matches 'security'<br/>route"]
-
-    BOUNDARY --> NOROUTE["No routing applied"]
-    MATCHED --> WEIGHT["Weighted Scoring<br/>Multiple matches = higher confidence"]
-    WEIGHT --> FILTER["Filter to 'security' category"]
-```
-
-Configure routes in `mcp_server/config.py`:
-
-```python
-keyword_routes = {
-    "security": ["anti-bot", "waf bypass", "cloudflare", ...],
-    "redteam": ["pentest", "exploit", "payload", "reverse shell", ...],
-    "blueteam": ["detection", "sigma", "yara", "incident response", ...],
-    "ctf": ["ctf", "flag", "hackthebox", "tryhackme", ...],
-    "Detections_Rules": ["logscale", "humio", "lql", "formatTime", ...],
-    "development": ["python", "javascript", "api", "docker", ...]
+```json
+{
+  "status": "success",
+  "chunks_added": 5,
+  "dedup_skipped": 0,
+  "category": "security",
+  "filepath": "/path/to/knowledge-rag/documents/security/new-technique.md"
 }
 ```
 
-**Word Boundary Matching**: Single-word keywords use regex word boundaries (`\b`) to prevent false positives. For example, "api" won't match "RAPID".
+---
 
-**Weighted Scoring**: When multiple keywords match, the category with the most matches wins.
+#### `update_document`
 
-### Chunking Settings
+Update an existing document. Removes old chunks from the index and re-indexes with new content.
 
-Adjust chunk size and overlap in `config.py`:
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `filepath` | string | Full path to the document file |
+| `content` | string | New content for the document |
 
-```python
-chunk_size = 1000      # Characters per chunk
-chunk_overlap = 200    # Overlap between chunks
+**Returns:**
+
+```json
+{
+  "status": "success",
+  "old_chunks_removed": 5,
+  "new_chunks_added": 7,
+  "dedup_skipped": 0,
+  "filepath": "/path/to/document.md"
+}
 ```
+
+---
+
+#### `remove_document`
+
+Remove a document from the knowledge base index. Optionally deletes the file from disk.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `filepath` | string | required | Path to the document file |
+| `delete_file` | bool | false | If true, also delete the file from disk |
+
+**Returns:**
+
+```json
+{
+  "status": "success",
+  "chunks_removed": 5,
+  "filepath": "/path/to/document.md",
+  "file_deleted": false
+}
+```
+
+---
+
+#### `add_from_url`
+
+Fetch content from a URL, strip HTML (scripts, styles, nav, footer, header), convert to markdown, and add to the knowledge base.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | string | required | URL to fetch content from |
+| `category` | string | "general" | Document category |
+| `title` | string | null | Custom title (auto-detected from `<title>` tag if not provided) |
+
+**Returns:** Same as `add_document`.
+
+---
+
+#### `search_similar`
+
+Find documents similar to a given document using embedding similarity. Returns unique documents (deduplicates by source path, excludes the reference document itself).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `filepath` | string | required | Path to the reference document |
+| `max_results` | int | 5 | Number of similar documents to return (1-20) |
+
+**Returns:**
+
+```json
+{
+  "status": "success",
+  "reference": "/path/to/reference.md",
+  "count": 3,
+  "similar_documents": [
+    {
+      "source": "/path/to/similar-doc.md",
+      "filename": "similar-doc.md",
+      "category": "security",
+      "similarity": 0.8742,
+      "preview": "First 200 characters of the similar document..."
+    }
+  ]
+}
+```
+
+---
+
+#### `evaluate_retrieval`
+
+Evaluate retrieval quality with test queries. Useful for tuning `hybrid_alpha`, testing query expansion effectiveness, or validating after reindexing.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `test_cases` | string (JSON) | Array of test cases: `[{"query": "...", "expected_filepath": "..."}, ...]` |
+
+**Returns:**
+
+```json
+{
+  "status": "success",
+  "total_queries": 3,
+  "mrr_at_5": 0.8333,
+  "recall_at_5": 1.0,
+  "per_query": [
+    {
+      "query": "sql injection",
+      "expected": "security/sqli-guide.md",
+      "found_at_rank": 1,
+      "reciprocal_rank": 1.0,
+      "top_result": "documents/security/sqli-guide.md"
+    }
+  ]
+}
+```
+
+**Metrics:**
+- **MRR@5** (Mean Reciprocal Rank): Average of 1/rank for expected documents. 1.0 = always first result.
+- **Recall@5**: Fraction of expected documents found in top 5 results. 1.0 = all found.
+
+---
+
+## Configuration
+
+All configuration lives in `mcp_server/config.py` via the `Config` dataclass.
 
 ### Embedding Model
 
-The default model is `nomic-embed-text`. To change:
+```python
+embedding_model: str = "BAAI/bge-small-en-v1.5"
+embedding_dim: int = 384
+```
 
-1. Pull a different model: `ollama pull <model-name>`
-2. Update `config.py`: `ollama_model = "<model-name>"`
+FastEmbed supports any model from its [model list](https://qdrant.github.io/fastembed/examples/Supported_Models/). To change the model, update `embedding_model` and `embedding_dim` in `config.py`, then run `reindex_documents(full_rebuild=True)` to rebuild with the new model.
+
+### Cross-Encoder Reranker
+
+```python
+reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
+reranker_enabled: bool = True
+reranker_top_k_multiplier: int = 3  # Retrieve 3x candidates for reranking
+```
+
+The reranker fetches `max_results * reranker_top_k_multiplier` candidates from RRF fusion, re-scores them with the cross-encoder, and returns the top `max_results`. Set `reranker_enabled = False` to disable reranking and use RRF scores directly.
+
+### Query Expansion
+
+```python
+query_expansions: Dict[str, List[str]] = {
+    "sqli": ["sql injection", "sqli"],
+    "privesc": ["privilege escalation", "privesc"],
+    "pth": ["pass-the-hash", "pth"],
+    "mimikatz": ["mimikatz", "sekurlsa", "logonpasswords"],
+    # ... 54 total mappings
+}
+```
+
+Query expansion runs on BM25 queries only (before tokenization). Add custom mappings to `query_expansions` in `config.py` for your domain. Supports single tokens, bigrams, and full query matches.
+
+### Chunking
+
+```python
+chunk_size: int = 1000      # Characters per chunk (for non-markdown files)
+chunk_overlap: int = 200    # Overlap between chunks
+```
+
+For `.md` files, chunking splits at `##` and `###` header boundaries first. Sections larger than `chunk_size` are sub-chunked with overlap. Non-markdown files use fixed-size chunking with overlap.
+
+### Keyword Routing
+
+```python
+keyword_routes: Dict[str, List[str]] = {
+    "redteam": ["pentest", "exploit", "mimikatz", "sqli", "xss", ...],
+    "security": ["anti-bot", "waf bypass", "cloudflare", ...],
+    "logscale": ["logscale", "lql", "formattime", ...],
+    "ctf": ["ctf", "flag", "hackthebox", "tryhackme", ...],
+    "development": ["python", "typescript", "api", ...],
+    "blueteam": ["detection", "sigma", "yara", ...],
+}
+```
+
+Single-word keywords use regex word boundaries (`\b`) to prevent false positives (e.g., "api" won't match "RAPID"). Multi-word keywords use substring matching. When multiple keywords match, the category with the most matches wins.
 
 ### Hybrid Search Tuning
 
-The `hybrid_alpha` parameter controls the balance:
-
 | hybrid_alpha | Behavior | Speed | Best For |
 |--------------|----------|-------|----------|
-| 0.0 | Pure BM25 keyword | **Instant** (no Ollama) | Exact terms, CVEs, tool names |
+| 0.0 | Pure BM25 keyword | **Instant** | Exact terms, CVEs, tool names |
 | 0.3 | Keyword-heavy **(default)** | Fast | Technical queries with specific terms |
 | 0.5 | Balanced | Medium | General queries |
-| 0.7 | Semantic-heavy | Slower | Conceptual queries |
-| 1.0 | Pure semantic | Slower (Ollama required) | "How to..." questions |
+| 0.7 | Semantic-heavy | Medium | Conceptual queries, related topics |
+| 1.0 | Pure semantic | Medium | "How to..." questions, abstract concepts |
+
+> In v3.0, all `hybrid_alpha` values have similar speed because FastEmbed runs in-process. The speed difference between 0.0 and 1.0 is minimal compared to v2.x where Ollama added network overhead.
 
 ---
 
 ## Project Structure
 
-```mermaid
-flowchart TB
-    subgraph ROOT["📁 knowledge-rag/"]
-        direction TB
-
-        subgraph SERVER["🐍 mcp_server/"]
-            INIT["__init__.py"]
-            CONFIG["config.py<br/>(settings, routes)"]
-            INGEST["ingestion.py<br/>(parsing, chunking)"]
-            SERV["server.py<br/>(MCP, ChromaDB, BM25)"]
-        end
-
-        subgraph DOCS["📚 documents/"]
-            SEC["security/<br/>Pentest, exploits"]
-            LOG["logscale/<br/>LQL docs"]
-            DEV["development/<br/>Code, APIs"]
-            GEN["general/<br/>Everything else"]
-        end
-
-        subgraph DATA["💾 data/"]
-            CHROMA["chroma_db/<br/>(Vector storage)"]
-            META["index_metadata.json"]
-        end
-
-        subgraph FILES["📄 Root Files"]
-            INSTALL["install.ps1"]
-            REQS["requirements.txt"]
-            README["README.md"]
-            CHANGE["CHANGELOG.md"]
-        end
-    end
-```
-
 ```
 knowledge-rag/
 ├── mcp_server/
 │   ├── __init__.py
-│   ├── config.py          # Configuration settings
-│   ├── ingestion.py       # Document parsing & chunking
-│   └── server.py          # MCP server, ChromaDB, BM25
+│   ├── config.py          # Configuration: models, chunking, routing, expansion
+│   ├── ingestion.py       # Document parsing, markdown-aware chunking, metadata
+│   └── server.py          # MCP server, ChromaDB, BM25, reranker, 12 tools
 ├── documents/             # Your documents go here
-│   ├── security/
-│   ├── Detections_Rules/
-│   ├── development/
-│   └── general/
+│   ├── security/          # Security, pentest, exploits
+│   ├── development/       # Code, APIs, frameworks
+│   ├── ctf/               # CTF writeups
+│   ├── logscale/          # LogScale/LQL docs
+│   └── general/           # Everything else
 ├── data/
-│   ├── chroma_db/         # Vector database storage
-│   └── index_metadata.json
+│   ├── chroma_db/         # ChromaDB vector database storage
+│   └── index_metadata.json # Incremental indexing metadata
 ├── .claude/
-│   └── mcp.json           # Project MCP config
+│   └── mcp.json           # Project MCP config (optional)
 ├── venv/                  # Python virtual environment
-├── install.ps1            # Automated installer
 ├── requirements.txt       # Python dependencies
 ├── CHANGELOG.md           # Version history
+├── LICENSE                # MIT License
 └── README.md              # This file
 ```
 
@@ -622,88 +868,137 @@ knowledge-rag/
 
 ## Troubleshooting
 
-### Ollama not running
-
-```powershell
-# Start Ollama
-ollama serve
-
-# Or check if running
-curl http://localhost:11434/api/tags
-```
-
 ### Python version mismatch
 
-ChromaDB requires Python 3.11 or 3.12. Python 3.13+ is NOT supported due to onnxruntime compatibility.
+ChromaDB depends on onnxruntime which requires Python 3.11 or 3.12. Python 3.13+ is **NOT** supported.
 
-```powershell
+```bash
 # Check version
 python --version
 
-# Use specific version
+# Windows: use specific version
 py -3.12 -m venv venv
+
+# Linux/macOS: use specific version
+python3.12 -m venv venv
+```
+
+### FastEmbed model download fails
+
+On first run, FastEmbed downloads models to `~/.cache/fastembed/`. If the download fails:
+
+```bash
+# Check internet connectivity
+# Models are downloaded from Hugging Face
+
+# Manual workaround: clear cache and retry
+# Windows:
+rmdir /s /q %USERPROFILE%\.cache\fastembed
+
+# Linux/macOS:
+rm -rf ~/.cache/fastembed
+
+# Then restart the MCP server
 ```
 
 ### Index is empty
 
-```powershell
-# Check documents directory
+```bash
+# Check documents directory has files
 ls documents/
 
-# Force reindex
-# In Claude Code: use reindex_documents(force=true)
+# Force reindex via Claude Code:
+# reindex_documents(force=True)
+
+# Or nuclear rebuild if model changed:
+# reindex_documents(full_rebuild=True)
 ```
 
 ### MCP server not loading
 
-1. Check `~/.claude.json` exists and has `mcpServers` section with valid JSON
+1. Check `~/.claude.json` exists and has valid JSON in the `mcpServers` section
 2. Verify paths use double backslashes (`\\`) on Windows
 3. Restart Claude Code completely
 4. Run `claude mcp list` to check connection status
 
 ### "ModuleNotFoundError: No module named 'rank_bm25'"
 
-Install the BM25 dependency in your virtual environment:
-
-```powershell
-.\venv\Scripts\pip.exe install rank-bm25
+```bash
+# Activate your venv first, then:
+pip install rank-bm25
 ```
 
 ### "ModuleNotFoundError: No module named 'mcp_server'"
 
-This error occurs when Claude Code doesn't set the working directory correctly. **Solution**: Use the `cmd /c "cd /d ... && python"` wrapper in your config:
+This occurs when Claude Code doesn't set the working directory correctly. Use the `cmd /c "cd /d ... && python"` wrapper in your MCP config (see [Installation](#configure-mcp-for-claude-code)).
 
-```json
-{
-  "knowledge-rag": {
-    "type": "stdio",
-    "command": "cmd",
-    "args": ["/c", "cd /d C:\\path\\to\\knowledge-rag && .\\venv\\Scripts\\python.exe -m mcp_server.server"],
-    "env": {}
-  }
-}
+### Dimension mismatch after upgrade
+
+This is expected when upgrading from v2.x (768D) to v3.0 (384D). The server detects the mismatch automatically and runs a nuclear rebuild on first startup. No manual action needed. If the auto-rebuild fails:
+
+```bash
+# Manual nuclear rebuild
+# Delete the ChromaDB data
+# Windows:
+rmdir /s /q data\chroma_db
+del data\index_metadata.json
+
+# Linux/macOS:
+rm -rf data/chroma_db
+rm data/index_metadata.json
+
+# Then restart the MCP server — it will re-index everything
 ```
+
+### Slow first query
+
+The cross-encoder reranker model is lazy-loaded on the first query that triggers reranking. This adds a one-time ~2-3 second delay for model download and loading. Subsequent queries are fast.
+
+### Memory usage
+
+With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and reranker (~25MB) are loaded into memory. For very large knowledge bases (1000+ documents), consider increasing the chunk deduplication to reduce index size.
 
 ---
 
 ## Changelog
 
+### v3.0.0 (2026-03-19)
+
+- **BREAKING**: Replaced Ollama with FastEmbed (ONNX in-process, no external server required)
+- **BREAKING**: Changed embedding model from nomic-embed-text (768D) to BAAI/bge-small-en-v1.5 (384D)
+- **NEW**: Cross-encoder reranker (Xenova/ms-marco-MiniLM-L-6-v2) applied after RRF fusion
+- **NEW**: Markdown-aware chunking — `.md` files split by `##`/`###` sections
+- **NEW**: Query expansion with 54 security-term synonym mappings
+- **NEW**: `add_document` — add document from raw content string
+- **NEW**: `update_document` — update existing document (re-chunks and re-indexes)
+- **NEW**: `remove_document` — remove document from index (optionally delete file)
+- **NEW**: `add_from_url` — fetch URL, strip HTML, convert to markdown, index
+- **NEW**: `search_similar` — find documents similar to a reference document
+- **NEW**: `evaluate_retrieval` — evaluate retrieval quality with MRR@5 and Recall@5
+- **NEW**: Auto-migration detects embedding dimension mismatch and triggers nuclear rebuild
+- **NEW**: `reindex_documents` now supports `full_rebuild` parameter for nuclear rebuild
+- **IMPROVED**: All embeddings run in-process (no network overhead, no server dependency)
+- **IMPROVED**: Reranker score included in search results alongside RRF score
+- **IMPROVED**: Platform support expanded to Linux and macOS
+- **REMOVED**: Ollama dependency
+- **REMOVED**: `ollama` package from requirements.txt
+
 ### v2.2.0 (2026-02-27)
-- **FIX**: `hybrid_alpha=0` now completely skips Ollama embedding - pure BM25 is instant
-- **FIX**: `hybrid_alpha=1.0` now skips BM25 search - no unnecessary keyword computation
+
+- **FIX**: `hybrid_alpha=0` now completely skips Ollama embedding — pure BM25 is instant
+- **FIX**: `hybrid_alpha=1.0` now skips BM25 search — no unnecessary keyword computation
 - **CHANGED**: Default `hybrid_alpha` from 0.5 to 0.3 (keyword-heavy for faster responses)
 - **NEW**: 40+ keyword routes for `redteam` category (GTFOBins, LOLBAS, BYOVD, SQLi, XSS, SSTI, hashcat, etc.)
 
 ### v2.1.0 (2026-02-05)
+
 - **NEW**: Interactive Mermaid flowcharts for architecture visualization
 - **NEW**: Query processing flow diagram showing hybrid search internals
 - **NEW**: Document ingestion pipeline diagram
-- **NEW**: Keyword routing visual explanation
-- **NEW**: hybrid_alpha parameter effect diagram
-- **NEW**: Project structure visual diagram
 - **IMPROVED**: Documentation now GitHub-native with dark/light theme support
 
 ### v2.0.0 (2025-01-20)
+
 - **NEW**: Hybrid search combining semantic + BM25 keyword search
 - **NEW**: Reciprocal Rank Fusion (RRF) for optimal result ranking
 - **NEW**: `hybrid_alpha` parameter to control search balance
@@ -711,16 +1006,25 @@ This error occurs when Claude Code doesn't set the working directory correctly. 
 - **IMPROVED**: Keyword routing with word boundaries (no more false positives)
 - **IMPROVED**: Weighted scoring for multiple keyword matches
 - **IMPROVED**: Parallel embedding generation (4x faster indexing)
-- **IMPROVED**: Input validation on MCP tools
 - **FIXED**: Chunk loop infinite loop potential
 - **FIXED**: Embedding error handling
 
+### v1.1.0 (2026-03-03)
+
+- **NEW**: Incremental indexing with file mtime/size change detection
+- **NEW**: Query cache (LRU + TTL) for instant repeat queries
+- **NEW**: Chunk deduplication via SHA256 content hashing
+- **NEW**: Score normalization to 0-1 range
+- **FIXED**: Orphaned chunks from modified files never cleaned up
+
 ### v1.0.1 (2025-01-16)
+
 - Auto-cleanup orphan UUID folders on reindex
 - Removed hardcoded user paths
 - Made install.ps1 plug-and-play
 
 ### v1.0.0 (2025-01-15)
+
 - Initial release
 
 ---
@@ -743,17 +1047,18 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- [ChromaDB](https://www.trychroma.com/) - Vector database
-- [Ollama](https://ollama.com/) - Local LLM & embeddings
-- [FastMCP](https://github.com/anthropics/mcp) - MCP framework
-- [PyMuPDF](https://pymupdf.readthedocs.io/) - PDF parsing
-- [rank-bm25](https://github.com/dorianbrown/rank_bm25) - BM25 implementation
+- [ChromaDB](https://www.trychroma.com/) — Vector database with persistent storage
+- [FastEmbed](https://qdrant.github.io/fastembed/) — ONNX Runtime embeddings (replaces Ollama)
+- [FastMCP](https://github.com/anthropics/mcp) — Model Context Protocol framework
+- [PyMuPDF](https://pymupdf.readthedocs.io/) — PDF parsing
+- [rank-bm25](https://github.com/dorianbrown/rank_bm25) — BM25 Okapi implementation
+- [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/) — HTML parsing for URL ingestion
 
 ---
 
 ## Author
 
-**Ailton Rocha (Lyon)**
+**Ailton Rocha (Lyon.)**
 
 AI Operator | Security Researcher | Developer
 

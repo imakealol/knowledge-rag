@@ -1,0 +1,44 @@
+# Runtime
+venv/
+__pycache__/
+*.pyc
+data/
+
+# Personal documents (NEVER commit — user-populated content)
+documents/aar/
+documents/security/
+documents/logscale/
+documents/general/
+documents/ctf/
+documents/development/
+
+# Sensitive file formats (extra safety layer)
+documents/**/*.pdf
+documents/**/*.docx
+documents/**/*.xlsx
+documents/**/*.pptx
+documents/**/*.csv
+
+# Keep example docs
+!documents/examples/
+!documents/examples/**
+
+# FastEmbed model cache
+.cache/
+*.onnx
+
+# Temp/junk
+*.b64
+*.tar.gz
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

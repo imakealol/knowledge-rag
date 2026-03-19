@@ -1,35 +1,44 @@
 <#
 .SYNOPSIS
-    Knowledge RAG System - Automated Installation Script
+    Knowledge RAG System - Automated Installation Script v2.0
 
 .DESCRIPTION
     Installs and configures a local RAG (Retrieval-Augmented Generation) system
-    with ChromaDB, Ollama embeddings, and MCP integration for Claude Code.
+    with ChromaDB, FastEmbed embeddings, hybrid search (BM25 + semantic), and
+    MCP integration for Claude Code.
+
+    v2.0 removes the Ollama dependency entirely. Embeddings are now handled
+    in-process by FastEmbed (ONNX Runtime) — no external services required.
+
+    Platform: Windows (PowerShell). Linux/macOS setup.sh coming soon.
 
 .AUTHOR
-    Ailton Rocha (Lyon) - AI Operator
+    Ailton Rocha (Lyon.)
 
 .VERSION
-    1.0.0
+    2.0.0
 
 .REQUIREMENTS
     - Windows 10/11
-    - Internet connection
-    - Administrator privileges (for some installations)
+    - Python 3.11 or 3.12 (NOT 3.13+ due to onnxruntime)
+    - Internet connection (for pip packages and model download)
+    - ~500MB disk space (venv + embedding model cache)
 
 .USAGE
-    .\install.ps1                    # Full installation
-    .\install.ps1 -SkipPython        # Skip Python installation
-    .\install.ps1 -SkipOllama        # Skip Ollama installation
+    .\install.ps1                     # Full installation
+    .\install.ps1 -SkipPython         # Skip Python auto-install
     .\install.ps1 -DocsPath "C:\Docs" # Custom documents path
+    .\install.ps1 -Force              # Recreate venv from scratch
+
+.NOTES
+    Cross-platform: This script is for Windows (PowerShell 5.1+).
+    A setup.sh for Linux/macOS is planned for a future release.
 #>
 
 [CmdletBinding()]
 param(
     [switch]$SkipPython,
-    [switch]$SkipOllama,
-    [switch]$SkipIndex,
-    [string]$InstallPath = $PSScriptRoot,  # Uses directory where script is located
+    [string]$InstallPath = $PSScriptRoot,
     [string]$DocsPath = "",
     [switch]$Force
 )
@@ -42,12 +51,11 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $CONFIG = @{
-    PythonVersion = "3.12"
-    PythonMinVersion = "3.11"
+    PythonVersion      = "3.12"
+    PythonMinVersion   = "3.11"
     PythonInstallerUrl = "https://www.python.org/ftp/python/3.12.0/python-3.12.0-amd64.exe"
-    OllamaInstallerUrl = "https://ollama.com/download/OllamaSetup.exe"
-    EmbeddingModel = "nomic-embed-text"
-    RequiredPackages = @("chromadb", "pymupdf", "ollama", "mcp")
+    EmbeddingModel     = "BAAI/bge-small-en-v1.5"
+    RequirementsFile   = "requirements.txt"
 }
 
 # ============================================================================
@@ -66,8 +74,8 @@ function Write-Banner {
     ║   ██║  ██╗██║ ╚████║╚██████╔╝╚███╔███╔╝███████╗███████╗██████╔╝  ║
     ║   ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚══╝╚══╝ ╚══════╝╚══════╝╚═════╝   ║
     ║                                                                   ║
-    ║                    RAG SYSTEM INSTALLER v1.0                      ║
-    ║              Local Semantic Search for Claude Code                ║
+    ║                    RAG SYSTEM INSTALLER v2.0                      ║
+    ║         Local Semantic Search for Claude Code (FastEmbed)         ║
     ║                                                                   ║
     ╚═══════════════════════════════════════════════════════════════════╝
 
@@ -79,19 +87,19 @@ function Write-Step {
     param([string]$Message, [string]$Status = "INFO")
 
     $colors = @{
-        "INFO" = "Cyan"
-        "OK" = "Green"
-        "WARN" = "Yellow"
+        "INFO"  = "Cyan"
+        "OK"    = "Green"
+        "WARN"  = "Yellow"
         "ERROR" = "Red"
-        "SKIP" = "DarkGray"
+        "SKIP"  = "DarkGray"
     }
 
     $symbols = @{
-        "INFO" = "[*]"
-        "OK" = "[+]"
-        "WARN" = "[!]"
+        "INFO"  = "[*]"
+        "OK"    = "[+]"
+        "WARN"  = "[!]"
         "ERROR" = "[-]"
-        "SKIP" = "[~]"
+        "SKIP"  = "[~]"
     }
 
     Write-Host "$($symbols[$Status]) " -ForegroundColor $colors[$Status] -NoNewline
@@ -148,55 +156,6 @@ function Get-PythonPath {
     return $null
 }
 
-function Get-OllamaPath {
-    $paths = @(
-        "$env:LOCALAPPDATA\Programs\Ollama\ollama.exe",
-        "$env:PROGRAMFILES\Ollama\ollama.exe",
-        "C:\Program Files\Ollama\ollama.exe"
-    )
-
-    foreach ($path in $paths) {
-        if (Test-Path $path) {
-            return $path
-        }
-    }
-
-    try {
-        return (Get-Command ollama -ErrorAction SilentlyContinue).Source
-    } catch {
-        return $null
-    }
-}
-
-function Test-OllamaRunning {
-    try {
-        $response = Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -Method Get -TimeoutSec 5
-        return $true
-    } catch {
-        return $false
-    }
-}
-
-function Start-OllamaService {
-    $ollamaPath = Get-OllamaPath
-    if (-not $ollamaPath) {
-        return $false
-    }
-
-    Write-Step "Starting Ollama service..." "INFO"
-    Start-Process -FilePath $ollamaPath -ArgumentList "serve" -WindowStyle Hidden
-
-    # Wait for service to start
-    $maxWait = 30
-    $waited = 0
-    while (-not (Test-OllamaRunning) -and $waited -lt $maxWait) {
-        Start-Sleep -Seconds 1
-        $waited++
-    }
-
-    return (Test-OllamaRunning)
-}
-
 # ============================================================================
 # INSTALLATION STEPS
 # ============================================================================
@@ -237,75 +196,6 @@ function Install-Python {
     }
 }
 
-function Install-Ollama {
-    Write-Host "`n=== OLLAMA INSTALLATION ===" -ForegroundColor Yellow
-
-    $ollamaPath = Get-OllamaPath
-
-    if ($ollamaPath) {
-        Write-Step "Ollama found at $ollamaPath" "OK"
-        return $ollamaPath
-    }
-
-    Write-Step "Ollama not found. Installing..." "WARN"
-
-    $installerPath = "$env:TEMP\OllamaSetup.exe"
-
-    Write-Step "Downloading Ollama installer..." "INFO"
-    Invoke-WebRequest -Uri $CONFIG.OllamaInstallerUrl -OutFile $installerPath
-
-    Write-Step "Running Ollama installer..." "INFO"
-    Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait
-
-    Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
-
-    # Wait for installation to complete
-    Start-Sleep -Seconds 5
-
-    $ollamaPath = Get-OllamaPath
-    if ($ollamaPath) {
-        Write-Step "Ollama installed successfully!" "OK"
-        return $ollamaPath
-    } else {
-        throw "Ollama installation failed. Please install Ollama manually from https://ollama.com"
-    }
-}
-
-function Install-EmbeddingModel {
-    param([string]$OllamaPath)
-
-    Write-Host "`n=== EMBEDDING MODEL ===" -ForegroundColor Yellow
-
-    # Ensure Ollama is running
-    if (-not (Test-OllamaRunning)) {
-        if (-not (Start-OllamaService)) {
-            throw "Could not start Ollama service. Please start it manually."
-        }
-    }
-
-    Write-Step "Ollama service is running" "OK"
-
-    # Check if model exists
-    try {
-        $models = & $OllamaPath list 2>&1
-        if ($models -match $CONFIG.EmbeddingModel) {
-            Write-Step "Model '$($CONFIG.EmbeddingModel)' already installed" "OK"
-            return
-        }
-    } catch {}
-
-    Write-Step "Pulling embedding model '$($CONFIG.EmbeddingModel)'..." "INFO"
-    Write-Step "This may take a few minutes on first run..." "INFO"
-
-    & $OllamaPath pull $CONFIG.EmbeddingModel
-
-    if ($LASTEXITCODE -eq 0) {
-        Write-Step "Embedding model installed successfully!" "OK"
-    } else {
-        throw "Failed to pull embedding model"
-    }
-}
-
 function Setup-ProjectStructure {
     Write-Host "`n=== PROJECT STRUCTURE ===" -ForegroundColor Yellow
 
@@ -318,8 +208,6 @@ function Setup-ProjectStructure {
     }
 
     # Create subdirectories
-    # Note: documents/ is optional - add your own documents there
-    # The config.py expects data/chroma_db/ for vector storage
     $dirs = @(
         "mcp_server",
         "documents",
@@ -327,6 +215,7 @@ function Setup-ProjectStructure {
         "documents\logscale",
         "documents\development",
         "documents\general",
+        "documents\aar",
         "data",
         "data\chroma_db",
         ".claude"
@@ -353,6 +242,10 @@ function Setup-VirtualEnvironment {
 
     # Create venv if needed
     if (-not (Test-Path $venvPython) -or $Force) {
+        if ($Force -and (Test-Path $venvPath)) {
+            Write-Step "Removing existing venv (--Force)..." "WARN"
+            Remove-Item $venvPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
         Write-Step "Creating virtual environment..." "INFO"
         & $PythonPath -m venv $venvPath
         Write-Step "Virtual environment created" "OK"
@@ -364,19 +257,52 @@ function Setup-VirtualEnvironment {
     Write-Step "Upgrading pip..." "INFO"
     & $venvPython -m pip install --upgrade pip --quiet
 
-    # Install packages
-    Write-Step "Installing dependencies..." "INFO"
-    foreach ($package in $CONFIG.RequiredPackages) {
-        Write-Step "  Installing $package..." "INFO"
-        & $venvPip install $package --quiet
+    # Install packages from requirements.txt
+    $reqFile = Join-Path $InstallPath $CONFIG.RequirementsFile
+    if (Test-Path $reqFile) {
+        Write-Step "Installing dependencies from $($CONFIG.RequirementsFile)..." "INFO"
+        & $venvPip install -r $reqFile --quiet
+        if ($LASTEXITCODE -eq 0) {
+            Write-Step "All dependencies installed!" "OK"
+        } else {
+            throw "Failed to install dependencies from $($CONFIG.RequirementsFile). Check the output above."
+        }
+    } else {
+        Write-Step "$($CONFIG.RequirementsFile) not found at $reqFile" "ERROR"
+        throw "Missing $($CONFIG.RequirementsFile). Ensure you cloned the repository correctly."
     }
-
-    Write-Step "All dependencies installed!" "OK"
 
     return $venvPython
 }
 
-function Create-SourceFiles {
+function Install-EmbeddingModel {
+    param([string]$VenvPython)
+
+    Write-Host "`n=== EMBEDDING MODEL (FastEmbed) ===" -ForegroundColor Yellow
+
+    $model = $CONFIG.EmbeddingModel
+    Write-Step "Pre-downloading embedding model: $model" "INFO"
+    Write-Step "This downloads ~130MB on first run (cached in ~/.cache/fastembed/)" "INFO"
+
+    try {
+        & $VenvPython -c "from fastembed import TextEmbedding; TextEmbedding('$model')" 2>&1 | ForEach-Object {
+            if ($_ -match "error|Error|ERROR|Traceback") {
+                Write-Step "$_" "ERROR"
+            }
+        }
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Step "Embedding model '$model' ready!" "OK"
+        } else {
+            Write-Step "Model download may have failed. The server will retry on first start." "WARN"
+        }
+    } catch {
+        Write-Step "Model pre-download failed: $_" "WARN"
+        Write-Step "The server will auto-download the model on first start." "WARN"
+    }
+}
+
+function Check-SourceFiles {
     Write-Host "`n=== SOURCE FILES ===" -ForegroundColor Yellow
 
     # __init__.py
@@ -385,28 +311,36 @@ function Create-SourceFiles {
         '"""Knowledge RAG MCP Server Package"""' | Out-File -FilePath $initPath -Encoding utf8
     }
 
-    # config.py - only create if doesn't exist (preserve git version)
+    # config.py
     $configPath = Join-Path $InstallPath "mcp_server\config.py"
     if (Test-Path $configPath) {
-        Write-Step "Found: config.py (using existing)" "OK"
+        Write-Step "Found: config.py" "OK"
     } else {
         Write-Step "config.py not found - please ensure you cloned the repository" "WARN"
     }
 
-    # Check if ingestion.py and server.py exist
+    # ingestion.py
     $ingestionPath = Join-Path $InstallPath "mcp_server\ingestion.py"
-    $serverPath = Join-Path $InstallPath "mcp_server\server.py"
-
-    if (-not (Test-Path $ingestionPath)) {
-        Write-Step "ingestion.py not found - please copy from source" "WARN"
-    } else {
+    if (Test-Path $ingestionPath) {
         Write-Step "Found: ingestion.py" "OK"
+    } else {
+        Write-Step "ingestion.py not found - please ensure you cloned the repository" "WARN"
     }
 
-    if (-not (Test-Path $serverPath)) {
-        Write-Step "server.py not found - please copy from source" "WARN"
-    } else {
+    # server.py
+    $serverPath = Join-Path $InstallPath "mcp_server\server.py"
+    if (Test-Path $serverPath) {
         Write-Step "Found: server.py" "OK"
+    } else {
+        Write-Step "server.py not found - please ensure you cloned the repository" "WARN"
+    }
+
+    # requirements.txt
+    $reqPath = Join-Path $InstallPath "requirements.txt"
+    if (Test-Path $reqPath) {
+        Write-Step "Found: requirements.txt" "OK"
+    } else {
+        Write-Step "requirements.txt not found" "WARN"
     }
 }
 
@@ -416,17 +350,15 @@ function Setup-MCPConfiguration {
     Write-Host "`n=== MCP CONFIGURATION ===" -ForegroundColor Yellow
 
     # Use cmd /c wrapper to ensure working directory is set correctly
-    # (Claude Code may not respect the cwd property)
     $escapedPath = $InstallPath.Replace("\", "\\")
-    $cmdArgs = "/c", "cd /d $InstallPath && .\venv\Scripts\python.exe -m mcp_server.server"
 
     $mcpConfig = @{
         mcpServers = @{
             "knowledge-rag" = @{
-                type = "stdio"
+                type    = "stdio"
                 command = "cmd"
-                args = @("/c", "cd /d $escapedPath && .\venv\Scripts\python.exe -m mcp_server.server")
-                env = @{}
+                args    = @("/c", "cd /d $escapedPath && .\venv\Scripts\python.exe -m mcp_server.server")
+                env     = @{}
             }
         }
     }
@@ -452,10 +384,10 @@ function Setup-MCPConfiguration {
             $existingConfig = Get-Content $globalMcpPath -Raw | ConvertFrom-Json -AsHashtable
             $existingConfig.mcpServers["knowledge-rag"] = $mcpConfig.mcpServers["knowledge-rag"]
             $existingConfig | ConvertTo-Json -Depth 10 | Out-File -FilePath $globalMcpPath -Encoding utf8
-            Write-Step "Updated: ~/.claude/mcp.json (global)" "OK"
+            Write-Step "Updated: ~/.claude/mcp.json (global - merged)" "OK"
         } catch {
             $mcpJson | Out-File -FilePath $globalMcpPath -Encoding utf8
-            Write-Step "Created: ~/.claude/mcp.json (global)" "OK"
+            Write-Step "Created: ~/.claude/mcp.json (global - fresh)" "OK"
         }
     } else {
         $mcpJson | Out-File -FilePath $globalMcpPath -Encoding utf8
@@ -463,56 +395,10 @@ function Setup-MCPConfiguration {
     }
 }
 
-function Run-InitialIndex {
-    param([string]$VenvPython)
-
-    Write-Host "`n=== INITIAL INDEXING ===" -ForegroundColor Yellow
-
-    # Check if there are documents to index
-    $docsPath = Join-Path $InstallPath "documents"
-    $docCount = (Get-ChildItem -Path $docsPath -Recurse -File | Where-Object {
-        $_.Extension -in @(".md", ".txt", ".pdf", ".py", ".json")
-    }).Count
-
-    if ($docCount -eq 0) {
-        Write-Step "No documents found to index. Add documents to: $docsPath" "WARN"
-        return
-    }
-
-    Write-Step "Found $docCount documents to index" "INFO"
-
-    # Ensure Ollama is running
-    if (-not (Test-OllamaRunning)) {
-        if (-not (Start-OllamaService)) {
-            Write-Step "Ollama not running. Start it and run indexing manually." "WARN"
-            return
-        }
-    }
-
-    Write-Step "Running initial indexing..." "INFO"
-
-    $indexScript = @"
-import sys
-sys.path.insert(0, r'$InstallPath')
-from mcp_server.server import KnowledgeOrchestrator
-
-orch = KnowledgeOrchestrator()
-result = orch.index_all()
-print(f"Indexed: {result['indexed']} files, {result['chunks_added']} chunks")
-print(f"Categories: {result['categories']}")
-"@
-
-    try {
-        $result = & $VenvPython -c $indexScript 2>&1
-        Write-Host $result
-        Write-Step "Indexing complete!" "OK"
-    } catch {
-        Write-Step "Indexing failed: $_" "ERROR"
-    }
-}
-
 function Show-Summary {
     param([string]$VenvPython)
+
+    $docsFullPath = Join-Path $InstallPath "documents"
 
     $summary = @"
 
@@ -520,34 +406,43 @@ function Show-Summary {
     ║                    INSTALLATION COMPLETE!                         ║
     ╚═══════════════════════════════════════════════════════════════════╝
 
-    Installation Path: $InstallPath
-    Python:            $VenvPython
-    Embedding Model:   $($CONFIG.EmbeddingModel)
+    Installation Path:  $InstallPath
+    Python (venv):      $VenvPython
+    Embedding Model:    $($CONFIG.EmbeddingModel) (FastEmbed, in-process)
+    Embedding Cache:    ~/.cache/fastembed/
 
     ┌─────────────────────────────────────────────────────────────────┐
     │ NEXT STEPS                                                       │
     ├─────────────────────────────────────────────────────────────────┤
     │                                                                  │
-    │ 1. Add documents to: $InstallPath\documents\
-    │    - security\   -> Security/pentest content
-    │    - logscale\   -> LogScale/CQL queries
-    │    - development\ -> Code/dev documentation
-    │    - general\    -> Other documents
+    │ 1. Add documents to: $docsFullPath\
+    │    - security\     -> Security/pentest content                   │
+    │    - logscale\     -> LogScale/LQL queries                       │
+    │    - development\  -> Code/dev documentation                     │
+    │    - aar\          -> After Action Reviews                       │
+    │    - general\      -> Other documents                            │
     │                                                                  │
     │ 2. Restart Claude Code to load the MCP server                    │
+    │    (server auto-indexes documents on startup)                    │
     │                                                                  │
-    │ 3. Available MCP Tools:                                          │
-    │    - search_knowledge(query, max_results, category)              │
+    │ 3. Available MCP Tools (12):                                     │
+    │    - search_knowledge(query, max_results, category, hybrid_alpha)│
     │    - get_document(filepath)                                      │
-    │    - reindex_documents(force)                                    │
+    │    - reindex_documents(force, full_rebuild)                      │
     │    - list_categories()                                           │
     │    - list_documents(category)                                    │
     │    - get_index_stats()                                           │
+    │    - add_document(content, filepath, category)                   │
+    │    - update_document(filepath, content)                          │
+    │    - remove_document(filepath, delete_file)                      │
+    │    - add_from_url(url, category, title)                          │
+    │    - search_similar(filepath, max_results)                       │
+    │    - evaluate_retrieval(test_cases)                              │
     │                                                                  │
     └─────────────────────────────────────────────────────────────────┘
 
-    IMPORTANT: Ollama must be running before using the RAG system!
-    Start Ollama with: ollama serve
+    No external services required. FastEmbed runs in-process.
+    Just restart Claude Code and start searching.
 
 "@
 
@@ -561,8 +456,12 @@ function Show-Summary {
 try {
     Write-Banner
 
-    # Check admin for installations
-    if (-not $SkipPython -or -not $SkipOllama) {
+    Write-Step "Install path: $InstallPath" "INFO"
+    Write-Step "Platform: Windows (PowerShell $($PSVersionTable.PSVersion))" "INFO"
+    Write-Host ""
+
+    # Admin check
+    if (-not $SkipPython) {
         if (-not (Test-Administrator)) {
             Write-Step "Some installations may require administrator privileges" "WARN"
         }
@@ -570,52 +469,41 @@ try {
 
     # Step 1: Python
     if ($SkipPython) {
-        Write-Step "Skipping Python installation" "SKIP"
+        Write-Step "Skipping Python installation (-SkipPython)" "SKIP"
         $pythonPath = Get-PythonPath
         if (-not $pythonPath) {
-            throw "Python 3.11/3.12 not found. Run without -SkipPython"
+            throw "Python 3.11/3.12 not found. Run without -SkipPython to auto-install."
         }
+        $version = & $pythonPath --version 2>&1
+        Write-Step "Using: $version at $pythonPath" "OK"
     } else {
         $pythonPath = Install-Python
     }
 
-    # Step 2: Ollama
-    if ($SkipOllama) {
-        Write-Step "Skipping Ollama installation" "SKIP"
-        $ollamaPath = Get-OllamaPath
-    } else {
-        $ollamaPath = Install-Ollama
-        if ($ollamaPath) {
-            Install-EmbeddingModel -OllamaPath $ollamaPath
-        }
-    }
-
-    # Step 3: Project structure
+    # Step 2: Project structure
     Setup-ProjectStructure
 
-    # Step 4: Virtual environment
+    # Step 3: Virtual environment + dependencies
     $venvPython = Setup-VirtualEnvironment -PythonPath $pythonPath
 
-    # Step 5: Source files
-    Create-SourceFiles
+    # Step 4: Pre-download embedding model
+    Install-EmbeddingModel -VenvPython $venvPython
+
+    # Step 5: Verify source files
+    Check-SourceFiles
 
     # Step 6: MCP configuration
     Setup-MCPConfiguration -VenvPython $venvPython
-
-    # Step 7: Initial indexing
-    if (-not $SkipIndex) {
-        Run-InitialIndex -VenvPython $venvPython
-    } else {
-        Write-Step "Skipping initial indexing" "SKIP"
-    }
 
     # Summary
     Show-Summary -VenvPython $venvPython
 
     Write-Host "Installation completed successfully!" -ForegroundColor Green
+    Write-Host ""
 
 } catch {
-    Write-Host "`n[!] Installation failed: $_" -ForegroundColor Red
-    Write-Host "Please check the error and try again." -ForegroundColor Yellow
+    Write-Host "`n[-] Installation failed: $_" -ForegroundColor Red
+    Write-Host "Please check the error above and try again." -ForegroundColor Yellow
+    Write-Host ""
     exit 1
 }

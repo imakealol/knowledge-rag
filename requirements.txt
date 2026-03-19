@@ -8,8 +8,8 @@ chromadb>=1.4.0
 # PDF Parser (fast, maintains structure)
 pymupdf>=1.23.0
 
-# Local Embeddings (Ollama Python client)
-ollama>=0.6.0
+# Embeddings & Reranker (ONNX Runtime, in-process, no external server)
+fastembed>=0.4.0
 
 # MCP Server Framework (FastMCP)
 mcp>=1.0.0
@@ -17,14 +17,20 @@ mcp>=1.0.0
 # BM25 for Hybrid Search (keyword + semantic)
 rank-bm25>=0.2.2
 
+# URL content fetching (add_from_url tool)
+requests>=2.31.0
+
+# HTML parsing (add_from_url tool)
+beautifulsoup4>=4.12.0
+
 # ==========================================
 # IMPORTANT NOTES:
 # ==========================================
-# 1. Ollama server must be running locally before use
-#    Start with: ollama serve
+# 1. FastEmbed auto-downloads models on first run
+#    (no manual setup required, unlike Ollama)
 #
-# 2. Install embedding model before first use:
-#    ollama pull nomic-embed-text
+# 2. Default embedding model: BAAI/bge-small-en-v1.5 (384-dim)
+#    Cached in ~/.cache/fastembed/
 #
 # 3. Python 3.13+ is NOT supported because chromadb
 #    depends on onnxruntime which has no 3.13 wheels

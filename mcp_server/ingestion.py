@@ -109,8 +109,11 @@ class DocumentParser:
             keywords=keywords,
         )
 
-        # Chunk the content
-        doc.chunks = self._chunk_text(content, metadata)
+        # Chunk the content (markdown-aware for .md files)
+        if suffix == ".md":
+            doc.chunks = self._chunk_markdown(content, metadata)
+        else:
+            doc.chunks = self._chunk_text(content, metadata)
 
         return doc
 
@@ -333,6 +336,83 @@ class DocumentParser:
                 start = end
             else:
                 start = new_start
+
+        return chunks
+
+    def _chunk_markdown(self, text: str, metadata: Dict) -> List[Chunk]:
+        """
+        Markdown-aware chunking: split by headers first, then size-based.
+
+        Splits document at ## and ### boundaries so each section becomes a
+        semantically coherent chunk. Sections larger than chunk_size are
+        sub-chunked with the header prepended for context.
+
+        Falls back to _chunk_text() if no headers are found.
+
+        Args:
+            text: Full document text
+            metadata: Document metadata dict
+
+        Returns:
+            List of Chunk objects aligned to markdown sections
+        """
+        if not text:
+            return []
+
+        # Split by headers (##, ###) keeping the header attached to its section
+        sections = re.split(r'(?=^#{1,3}\s+)', text, flags=re.MULTILINE)
+
+        # Filter empty sections
+        sections = [s for s in sections if s.strip()]
+
+        # If no headers found (or only 1 section), fall back to standard chunking
+        if len(sections) <= 1:
+            return self._chunk_text(text, metadata)
+
+        chunks = []
+        global_index = 0
+        char_offset = 0
+
+        for section in sections:
+            section_stripped = section.strip()
+            if not section_stripped:
+                char_offset += len(section)
+                continue
+
+            # Extract header from section (first line starting with #)
+            header_match = re.match(r'^(#{1,3}\s+.+)$', section_stripped, re.MULTILINE)
+            header_context = header_match.group(1) if header_match else ""
+
+            if len(section_stripped) <= self.chunk_size:
+                # Section fits in one chunk
+                chunk = Chunk(
+                    content=section_stripped,
+                    index=global_index,
+                    start_char=char_offset,
+                    end_char=char_offset + len(section),
+                    metadata={
+                        "title": metadata.get("title", ""),
+                        "type": metadata.get("type", ""),
+                        "section_header": header_context,
+                    }
+                )
+                chunks.append(chunk)
+                global_index += 1
+            else:
+                # Section too large — sub-chunk with header prepended
+                sub_chunks = self._chunk_text(section_stripped, metadata)
+                for i, sub_chunk in enumerate(sub_chunks):
+                    # Prepend header context to sub-chunks (except the first which already has it)
+                    if i > 0 and header_context:
+                        sub_chunk.content = f"{header_context}\n\n{sub_chunk.content}"
+                    sub_chunk.index = global_index
+                    sub_chunk.start_char += char_offset
+                    sub_chunk.end_char += char_offset
+                    sub_chunk.metadata["section_header"] = header_context
+                    chunks.append(sub_chunk)
+                    global_index += 1
+
+            char_offset += len(section)
 
         return chunks
 
