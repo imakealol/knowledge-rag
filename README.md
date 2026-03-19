@@ -1097,9 +1097,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Author
 
-**Ailton Rocha (Lyon.)**
+**Lyon.**
 
-AI Operator | Security Researcher | Developer
+Security Researcher | Developer
 
 ---
 
