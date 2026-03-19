@@ -34,7 +34,8 @@ class Config:
 
     # Supported formats
     supported_formats: List[str] = field(default_factory=lambda: [
-        ".md", ".txt", ".pdf", ".py", ".json"
+        ".md", ".txt", ".pdf", ".py", ".json",
+        ".docx", ".xlsx", ".pptx", ".csv"
     ])
 
     # Category mappings based on path

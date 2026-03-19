@@ -29,6 +29,8 @@ import json
 import hashlib
 import re
 import time
+import threading
+import numpy as np
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime
@@ -43,6 +45,10 @@ from fastembed.rerank.cross_encoder import TextCrossEncoder
 
 # BM25 for keyword search (hybrid search)
 from rank_bm25 import BM25Okapi
+
+# File watcher for auto-reindex
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 # FastMCP
 from mcp.server.fastmcp import FastMCP
@@ -344,6 +350,57 @@ class BM25Index:
 
     def __len__(self) -> int:
         return len(self.corpus)
+
+
+# =============================================================================
+# KNOWLEDGE ORCHESTRATOR
+# =============================================================================
+
+# =============================================================================
+# FILE WATCHER (auto-reindex on document changes)
+# =============================================================================
+
+class DocumentWatcher(FileSystemEventHandler):
+    """Watches documents directory and triggers reindex on changes."""
+
+    def __init__(self, orchestrator_getter, debounce_seconds: float = 5.0):
+        self._get_orchestrator = orchestrator_getter
+        self._debounce = debounce_seconds
+        self._timer = None
+        self._lock = threading.Lock()
+
+    def _schedule_reindex(self):
+        """Debounced reindex — waits for changes to settle before reindexing."""
+        with self._lock:
+            if self._timer:
+                self._timer.cancel()
+            self._timer = threading.Timer(self._debounce, self._do_reindex)
+            self._timer.daemon = True
+            self._timer.start()
+
+    def _do_reindex(self):
+        """Perform incremental reindex in background."""
+        try:
+            orch = self._get_orchestrator()
+            stats = orch.index_all(force=False)
+            changed = stats.get("indexed", 0) + stats.get("updated", 0) + stats.get("deleted", 0)
+            if changed > 0:
+                print(f"[WATCHER] Auto-reindexed: {stats['indexed']} new, "
+                      f"{stats['updated']} updated, {stats['deleted']} deleted")
+        except Exception as e:
+            print(f"[WATCHER] Reindex failed: {e}")
+
+    def on_created(self, event):
+        if not event.is_directory and Path(event.src_path).suffix in config.supported_formats:
+            self._schedule_reindex()
+
+    def on_modified(self, event):
+        if not event.is_directory and Path(event.src_path).suffix in config.supported_formats:
+            self._schedule_reindex()
+
+    def on_deleted(self, event):
+        if not event.is_directory and Path(event.src_path).suffix in config.supported_formats:
+            self._schedule_reindex()
 
 
 # =============================================================================
@@ -849,6 +906,10 @@ class KnowledgeOrchestrator:
         else:
             score_range = 0
 
+        # MMR: Maximal Marginal Relevance — diversify results to reduce redundancy
+        if len(sorted_results) > max_results:
+            sorted_results = self._apply_mmr(sorted_results, max_results, lambda_param=0.7)
+
         formatted = []
         for chunk_id, data in sorted_results[:max_results]:
             metadata = data.get("metadata", {})
@@ -909,6 +970,57 @@ class KnowledgeOrchestrator:
 
         best_category = max(category_scores.keys(), key=lambda c: category_scores[c][0])
         return best_category
+
+    def _apply_mmr(
+        self,
+        results: List[Tuple[str, Dict]],
+        top_k: int,
+        lambda_param: float = 0.7
+    ) -> List[Tuple[str, Dict]]:
+        """
+        Maximal Marginal Relevance — diversify results to reduce redundancy.
+
+        Balances relevance (score) vs diversity (dissimilarity to already selected docs).
+        lambda=1.0 = pure relevance, lambda=0.0 = pure diversity, default 0.7 = relevance-heavy.
+        """
+        if len(results) <= top_k:
+            return results
+
+        # Use content text for similarity (simple Jaccard on token sets)
+        def jaccard_sim(a: str, b: str) -> float:
+            tokens_a = set(a.lower().split())
+            tokens_b = set(b.lower().split())
+            if not tokens_a or not tokens_b:
+                return 0.0
+            return len(tokens_a & tokens_b) / len(tokens_a | tokens_b)
+
+        selected = [results[0]]  # First result always selected (highest score)
+        remaining = list(results[1:])
+
+        while len(selected) < top_k and remaining:
+            best_idx = 0
+            best_mmr = -1.0
+
+            for i, (chunk_id, data) in enumerate(remaining):
+                # Relevance score (normalized)
+                relevance = data.get("reranker_score", data.get("rrf_score", 0))
+
+                # Max similarity to any already-selected doc
+                doc_text = data.get("document", "")
+                max_sim = max(
+                    jaccard_sim(doc_text, sel_data.get("document", ""))
+                    for _, sel_data in selected
+                )
+
+                mmr_score = lambda_param * relevance - (1 - lambda_param) * max_sim
+
+                if mmr_score > best_mmr:
+                    best_mmr = mmr_score
+                    best_idx = i
+
+            selected.append(remaining.pop(best_idx))
+
+        return selected
 
     # =========================================================================
     # Document Retrieval & Management
@@ -1609,6 +1721,14 @@ def main():
         print("[INFO] No documents indexed. Running initial indexing...")
         stats = orchestrator.index_all()
         print(f"[INFO] Indexed {stats['indexed']} documents with {stats['chunks_added']} chunks")
+
+    # Start file watcher for auto-reindex on document changes
+    watcher = DocumentWatcher(get_orchestrator, debounce_seconds=5.0)
+    observer = Observer()
+    observer.schedule(watcher, str(config.documents_dir), recursive=True)
+    observer.daemon = True
+    observer.start()
+    print(f"[WATCHER] Monitoring {config.documents_dir} for changes")
 
     mcp.run()
 

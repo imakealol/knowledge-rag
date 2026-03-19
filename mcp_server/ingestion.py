@@ -1,7 +1,7 @@
 """Document Ingestion System for Knowledge RAG
 
 Multi-format document parsing, chunking, and metadata extraction.
-Supports: MD, PDF, TXT, PY, JSON
+Supports: MD, PDF, TXT, PY, JSON, DOCX, XLSX, PPTX, CSV
 """
 
 import re
@@ -12,12 +12,34 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
-# PDF support (optional - graceful degradation if not installed)
+# PDF support (optional)
 try:
     import fitz  # PyMuPDF
     HAS_PYMUPDF = True
 except ImportError:
     HAS_PYMUPDF = False
+
+# Office formats (optional)
+try:
+    import docx  # python-docx
+    HAS_DOCX = True
+except ImportError:
+    HAS_DOCX = False
+
+try:
+    import openpyxl
+    HAS_XLSX = True
+except ImportError:
+    HAS_XLSX = False
+
+try:
+    from pptx import Presentation
+    HAS_PPTX = True
+except ImportError:
+    HAS_PPTX = False
+
+import csv
+import io
 
 from .config import config
 
@@ -70,6 +92,10 @@ class DocumentParser:
             ".pdf": self._parse_pdf,
             ".py": self._parse_code,
             ".json": self._parse_json,
+            ".docx": self._parse_docx,
+            ".xlsx": self._parse_xlsx,
+            ".pptx": self._parse_pptx,
+            ".csv": self._parse_csv,
         }
 
     def parse_file(self, filepath: Path) -> Optional[Document]:
@@ -272,6 +298,126 @@ class DocumentParser:
             metadata["is_valid_json"] = False
             content = raw_content
 
+        return content, metadata
+
+    def _parse_docx(self, filepath: Path) -> tuple[str, Dict]:
+        """Parse DOCX file extracting paragraphs and tables."""
+        if not HAS_DOCX:
+            raise ImportError("python-docx not installed. Install with: pip install python-docx")
+
+        doc = docx.Document(filepath)
+        metadata = {
+            "type": "docx",
+            "title": filepath.stem,
+            "file_size": filepath.stat().st_size,
+            "modified": datetime.fromtimestamp(filepath.stat().st_mtime).isoformat(),
+            "paragraphs": len(doc.paragraphs),
+            "tables": len(doc.tables),
+        }
+
+        parts = []
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if text:
+                # Preserve heading structure as markdown
+                if para.style and para.style.name.startswith('Heading'):
+                    try:
+                        level = int(para.style.name.split()[-1])
+                        parts.append(f"{'#' * level} {text}")
+                    except (ValueError, IndexError):
+                        parts.append(f"## {text}")
+                else:
+                    parts.append(text)
+
+        # Extract tables as markdown
+        for table in doc.tables:
+            rows = []
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                rows.append(" | ".join(cells))
+            if rows:
+                parts.append("\n".join(rows))
+
+        content = "\n\n".join(parts)
+        return content, metadata
+
+    def _parse_xlsx(self, filepath: Path) -> tuple[str, Dict]:
+        """Parse XLSX file extracting all sheets as text tables."""
+        if not HAS_XLSX:
+            raise ImportError("openpyxl not installed. Install with: pip install openpyxl")
+
+        wb = openpyxl.load_workbook(filepath, read_only=True, data_only=True)
+        metadata = {
+            "type": "xlsx",
+            "title": filepath.stem,
+            "file_size": filepath.stat().st_size,
+            "modified": datetime.fromtimestamp(filepath.stat().st_mtime).isoformat(),
+            "sheets": wb.sheetnames,
+        }
+
+        parts = []
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            parts.append(f"## Sheet: {sheet_name}")
+            for row in ws.iter_rows(values_only=True):
+                cells = [str(c) if c is not None else "" for c in row]
+                line = " | ".join(cells).strip()
+                if line and line != " | " * (len(cells) - 1):
+                    parts.append(line)
+
+        wb.close()
+        content = "\n\n".join(parts)
+        return content, metadata
+
+    def _parse_pptx(self, filepath: Path) -> tuple[str, Dict]:
+        """Parse PPTX file extracting slide text."""
+        if not HAS_PPTX:
+            raise ImportError("python-pptx not installed. Install with: pip install python-pptx")
+
+        prs = Presentation(filepath)
+        metadata = {
+            "type": "pptx",
+            "title": filepath.stem,
+            "file_size": filepath.stat().st_size,
+            "modified": datetime.fromtimestamp(filepath.stat().st_mtime).isoformat(),
+            "slides": len(prs.slides),
+        }
+
+        parts = []
+        for i, slide in enumerate(prs.slides):
+            slide_texts = []
+            for shape in slide.shapes:
+                if shape.has_text_frame:
+                    for para in shape.text_frame.paragraphs:
+                        text = para.text.strip()
+                        if text:
+                            slide_texts.append(text)
+            if slide_texts:
+                parts.append(f"## Slide {i + 1}\n" + "\n".join(slide_texts))
+
+        content = "\n\n".join(parts)
+        return content, metadata
+
+    def _parse_csv(self, filepath: Path) -> tuple[str, Dict]:
+        """Parse CSV file as text table."""
+        raw = filepath.read_text(encoding="utf-8", errors="ignore")
+        metadata = {
+            "type": "csv",
+            "title": filepath.stem,
+            "file_size": filepath.stat().st_size,
+            "modified": datetime.fromtimestamp(filepath.stat().st_mtime).isoformat(),
+        }
+
+        parts = []
+        reader = csv.reader(io.StringIO(raw))
+        rows = list(reader)
+        metadata["rows"] = len(rows)
+        metadata["columns"] = len(rows[0]) if rows else 0
+
+        for row in rows:
+            parts.append(" | ".join(row))
+
+        content = "\n".join(parts)
         return content, metadata
 
     # =========================================================================
