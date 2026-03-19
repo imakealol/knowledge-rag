@@ -14,8 +14,7 @@ from datetime import datetime
 
 # PDF support (optional - graceful degradation if not installed)
 try:
-    import pymupdf4llm  # Structural PDF → Markdown (tables, headers, lists)
-    import fitz  # PyMuPDF (base dependency)
+    import fitz  # PyMuPDF
     HAS_PYMUPDF = True
 except ImportError:
     HAS_PYMUPDF = False
@@ -173,10 +172,10 @@ class DocumentParser:
         return content, metadata
 
     def _parse_pdf(self, filepath: Path) -> tuple[str, Dict]:
-        """Parse PDF file to structured Markdown (tables, headers, lists preserved)."""
+        """Parse PDF file using PyMuPDF (text extraction, no markdown conversion)."""
         if not HAS_PYMUPDF:
             raise ImportError(
-                "PyMuPDF not installed. Install with: pip install pymupdf4llm"
+                "PyMuPDF (fitz) not installed. Install with: pip install pymupdf"
             )
 
         metadata = {
@@ -186,15 +185,19 @@ class DocumentParser:
             "modified": datetime.fromtimestamp(filepath.stat().st_mtime).isoformat(),
         }
 
-        # Extract metadata via fitz
+        text_parts = []
+
         with fitz.open(filepath) as doc:
             metadata["pages"] = len(doc)
             metadata["title"] = doc.metadata.get("title", filepath.stem)
             metadata["author"] = doc.metadata.get("author", "")
 
-        # Convert to structured Markdown (tables, headers, lists preserved)
-        content = pymupdf4llm.to_markdown(str(filepath))
+            for page_num, page in enumerate(doc):
+                text = page.get_text()
+                if text.strip():
+                    text_parts.append(f"[Page {page_num + 1}]\n{text}")
 
+        content = "\n\n".join(text_parts)
         return content, metadata
 
     def _parse_text(self, filepath: Path) -> tuple[str, Dict]:

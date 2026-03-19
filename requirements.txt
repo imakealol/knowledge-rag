@@ -5,8 +5,8 @@
 # Vector Database (uses new PersistentClient API)
 chromadb>=1.4.0
 
-# PDF Parser (structural: tables, headers, lists → Markdown)
-pymupdf4llm>=1.0.0
+# PDF Parser (text extraction)
+pymupdf>=1.23.0
 
 # Embeddings & Reranker (ONNX Runtime, in-process, no external server)
 # [reranking] extra installs cross-encoder dependencies (required for reranker)
