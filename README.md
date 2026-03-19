@@ -31,14 +31,14 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 > **v3.0 is a major release.** If you are upgrading from v2.x, read this section first.
 
-| Change | v2.x | v3.0 | Action Required |
-|--------|------|------|-----------------|
-| **Embedding engine** | Ollama (external server) | FastEmbed (ONNX in-process) | Uninstall Ollama if no longer needed. No server to manage. |
-| **Embedding model** | nomic-embed-text (768D) | BAAI/bge-small-en-v1.5 (384D) | Auto-migration on first startup. Nuclear rebuild runs automatically. |
-| **Embedding dimensions** | 768 | 384 | Existing ChromaDB data is incompatible. Auto-rebuild handles this. |
-| **Dependencies** | `ollama>=0.6.0` | `fastembed>=0.4.0`, `requests`, `beautifulsoup4` | Run `pip install -r requirements.txt` in your venv. |
-| **MCP tools** | 6 tools | 12 tools | No action. New tools are additive. |
-| **Default hybrid_alpha** | 0.3 | 0.3 | No change. |
+| Change | v2.x | v3.0 |
+|--------|------|------|
+| **Embedding engine** | Ollama (external server) | FastEmbed (ONNX in-process) |
+| **Embedding model** | nomic-embed-text (768D) | BAAI/bge-small-en-v1.5 (384D) |
+| **Embedding dimensions** | 768 | 384 |
+| **Dependencies** | `ollama>=0.6.0` | `fastembed>=0.4.0`, `requests`, `beautifulsoup4` |
+| **MCP tools** | 6 tools | 12 tools |
+| **Default hybrid_alpha** | 0.3 | 0.3 |
 
 ### Migration Steps
 
