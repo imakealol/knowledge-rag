@@ -386,8 +386,8 @@ class KnowledgeOrchestrator:
         # Chunk dedup tracking (content_hash -> chunk_id)
         self._chunk_hashes: Dict[str, str] = self._build_dedup_index()
 
-        # Migration: check if embedding dimension changed
-        self._needs_rebuild = self._check_dimension_mismatch()
+        # Migration: deferred — checked in main() after full init
+        self._needs_rebuild = False
 
     def _check_dimension_mismatch(self) -> bool:
         """Check if stored embeddings have different dimension than current config.
@@ -985,9 +985,13 @@ class KnowledgeOrchestrator:
         if not filepath.exists():
             return {"error": f"File not found: {filepath}"}
 
+        # Resolve to absolute for consistent comparison with stored metadata
+        filepath_resolved = str(filepath.resolve())
+
         doc_id = None
         for did, info in self._indexed_docs.items():
-            if info.get("source") == str(filepath):
+            stored = str(Path(info.get("source", "")).resolve())
+            if stored == filepath_resolved:
                 doc_id = did
                 break
 
@@ -1036,11 +1040,12 @@ class KnowledgeOrchestrator:
 
     def remove_document_by_path(self, filepath: str, delete_file: bool = False) -> Dict[str, Any]:
         """Remove a document from the index. Optionally delete from disk."""
-        filepath_str = str(Path(filepath))
+        filepath_resolved = str(Path(filepath).resolve())
 
         doc_id = None
         for did, info in self._indexed_docs.items():
-            if info.get("source") == filepath_str:
+            stored = str(Path(info.get("source", "")).resolve())
+            if stored == filepath_resolved:
                 doc_id = did
                 break
 
@@ -1059,7 +1064,7 @@ class KnowledgeOrchestrator:
         self._save_metadata()
         self.query_cache.invalidate()
 
-        return {"chunks_removed": chunks_removed, "filepath": filepath_str, "file_deleted": delete_file}
+        return {"chunks_removed": chunks_removed, "filepath": filepath_resolved, "file_deleted": delete_file}
 
     def add_from_url(self, url: str, category: str, title: str = None) -> Dict[str, Any]:
         """Fetch URL content, convert to markdown, and add to knowledge base."""
@@ -1098,11 +1103,12 @@ class KnowledgeOrchestrator:
 
     def search_similar(self, filepath: str, max_results: int = 5) -> List[Dict[str, Any]]:
         """Find documents similar to a given document using embedding similarity."""
-        filepath_str = str(Path(filepath))
+        filepath_resolved = str(Path(filepath).resolve())
 
         doc_id = None
         for did, info in self._indexed_docs.items():
-            if info.get("source") == filepath_str:
+            stored = str(Path(info.get("source", "")).resolve())
+            if stored == filepath_resolved:
                 doc_id = did
                 break
 
@@ -1587,7 +1593,8 @@ def main():
     """Run the MCP server"""
     orchestrator = get_orchestrator()
 
-    # Migration: auto-rebuild if embedding dimension changed
+    # Migration: check dimension mismatch AFTER full init (avoids segfault during __init__)
+    orchestrator._needs_rebuild = orchestrator._check_dimension_mismatch()
     if orchestrator._needs_rebuild:
         print("[MIGRATION] Running nuclear rebuild for embedding model change...")
         try:
