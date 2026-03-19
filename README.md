@@ -1,4 +1,4 @@
-# Knowledge RAG System
+# Knowledge RAG
 
 <div align="center">
 
@@ -7,11 +7,21 @@
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 
-**Local RAG (Retrieval-Augmented Generation) System for Claude Code**
+### LLMs don't know your docs. Every conversation starts from zero.
 
-*Hybrid search with cross-encoder reranking, markdown-aware chunking, and query expansion for your personal knowledge base*
+Your notes, writeups, internal procedures, PDFs — none of it exists to your AI assistant.
+Cloud RAG solutions leak your private data. Local ones require Docker, Ollama, and 15 minutes of setup before a single query.
 
-[Breaking Changes](#breaking-changes-v2x--v30) | [What's New](#whats-new-in-v300) | [Installation](#installation) | [API Reference](#api-reference) | [Architecture](#architecture)
+**Knowledge RAG fixes this.** One `pip install`, zero external servers.
+Your documents become instantly searchable inside Claude Code — with reranking precision that actually finds what you need.
+
+`clone → pip install → restart Claude Code → done.`
+
+---
+
+**12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
+
+[What's New in v3.0](#whats-new-in-v300) | [Installation](#installation) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
