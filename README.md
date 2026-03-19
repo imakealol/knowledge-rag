@@ -6,7 +6,7 @@
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
-[![Glama](https://glama.ai/mcp/servers/lyonzin/knowledge-rag/badge)](https://glama.ai/mcp/servers/lyonzin/knowledge-rag)
+[![Glama](https://glama.ai/mcp/servers/lyonzin/knowledge-rag/badge?type=badge)](https://glama.ai/mcp/servers/lyonzin/knowledge-rag)
 [![PyPI](https://img.shields.io/pypi/v/knowledge-rag)](https://pypi.org/project/knowledge-rag/)
 
 ### LLMs don't know your docs. Every conversation starts from zero.
