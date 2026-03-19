@@ -1066,6 +1066,10 @@ class KnowledgeOrchestrator:
         import requests
         from bs4 import BeautifulSoup
 
+        # Validate URL scheme (only http/https allowed)
+        if not url.startswith(("http://", "https://")):
+            return {"error": "Only http:// and https:// URLs are supported"}
+
         try:
             response = requests.get(url, timeout=30, headers={
                 "User-Agent": "Mozilla/5.0 (knowledge-rag-ingester)"
@@ -1111,9 +1115,12 @@ class KnowledgeOrchestrator:
                 include=["embeddings"],
                 limit=1
             )
-            if not results["ids"] or not results["embeddings"]:
+            if not results["ids"] or not results.get("embeddings"):
                 return []
-            query_embedding = results["embeddings"][0]
+            embeddings = results.get("embeddings", [])
+            if not embeddings:
+                return []
+            query_embedding = embeddings[0]
         except Exception:
             return []
 
@@ -1583,9 +1590,14 @@ def main():
     # Migration: auto-rebuild if embedding dimension changed
     if orchestrator._needs_rebuild:
         print("[MIGRATION] Running nuclear rebuild for embedding model change...")
-        stats = orchestrator.nuclear_rebuild()
-        print(f"[MIGRATION] Rebuild complete: {stats['indexed']} docs, "
-              f"{stats['chunks_added']} chunks in {stats.get('elapsed_seconds', '?')}s")
+        try:
+            stats = orchestrator.nuclear_rebuild()
+            print(f"[MIGRATION] Rebuild complete: {stats['indexed']} docs, "
+                  f"{stats['chunks_added']} chunks in {stats.get('elapsed_seconds', '?')}s")
+        except Exception as e:
+            print(f"[ERROR] Migration failed: {e}")
+            print("[FALLBACK] Attempting regular index instead...")
+            stats = orchestrator.index_all(force=True)
     elif orchestrator.collection.count() == 0:
         print("[INFO] No documents indexed. Running initial indexing...")
         stats = orchestrator.index_all()
