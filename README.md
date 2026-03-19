@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)
+![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -21,7 +21,7 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 **12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
 
-[What's New in v3.0](#whats-new-in-v300) | [Installation](#installation) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v310) | [Installation](#installation) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
@@ -65,6 +65,22 @@ The first startup after upgrading will take longer than usual because:
 3. The cross-encoder reranker model is downloaded on first query (~25MB)
 
 After the initial rebuild, startup and queries are faster than v2.x because there is no Ollama server dependency.
+
+---
+
+## What's New in v3.1.0
+
+### Office Document Support (DOCX, XLSX, PPTX, CSV)
+
+9 formats supported. DOCX headings preserved as markdown structure, Excel sheets extracted as text tables, PowerPoint slides extracted per-slide, CSV natively parsed. All new formats integrate with markdown-aware chunking.
+
+### File Watcher — Auto-Reindex on Changes
+
+Documents directory is monitored in real-time via watchdog. When you add, modify, or delete a file, the system auto-reindexes with 5-second debounce. No manual `reindex_documents` needed.
+
+### MMR Result Diversification
+
+Maximal Marginal Relevance applied after reranking to reduce redundant results. Balances relevance vs diversity (lambda=0.7). If your top 5 results were all from the same document, MMR pushes varied sources up.
 
 ---
 
@@ -114,7 +130,7 @@ Knowledge RAG is a **100% local** hybrid search system that integrates with Clau
 - **Markdown-Aware**: `.md` files are chunked by section headers, preserving semantic coherence.
 - **Query Expansion**: 54 security-term synonyms ensure abbreviated queries find relevant content.
 - **Privacy First**: All processing happens locally. No data leaves your machine.
-- **Multi-Format**: Supports MD, PDF, TXT, Python, JSON files.
+- **Multi-Format**: Supports MD, PDF, DOCX, XLSX, PPTX, CSV, TXT, Python, JSON files.
 - **Smart Routing**: Keyword-based routing with word boundaries for accurate category filtering.
 - **Incremental Indexing**: Only re-indexes new or modified files. Instant startup for unchanged knowledge bases.
 - **CRUD via MCP**: Add, update, remove documents directly from Claude Code. Fetch URLs and index them.
@@ -131,7 +147,7 @@ Knowledge RAG is a **100% local** hybrid search system that integrates with Clau
 | **Markdown-Aware Chunking** | `.md` files split by `##`/`###` sections instead of fixed windows |
 | **In-Process Embeddings** | FastEmbed ONNX Runtime (BAAI/bge-small-en-v1.5, 384D) |
 | **Keyword Routing** | Word-boundary aware routing for domain-specific queries |
-| **Multi-Format Parser** | PDF (PyMuPDF), Markdown, TXT, Python, JSON |
+| **Multi-Format Parser** | PDF, DOCX, XLSX, PPTX, CSV, Markdown, TXT, Python, JSON (9 formats) |
 | **Category Organization** | Organize docs by security, development, ctf, logscale, etc. |
 | **Incremental Indexing** | Change detection via mtime/size. Only re-indexes modified files. |
 | **Chunk Deduplication** | SHA256 content hashing prevents duplicate chunks |
@@ -140,6 +156,8 @@ Knowledge RAG is a **100% local** hybrid search system that integrates with Clau
 | **URL Ingestion** | Fetch URLs, strip HTML, convert to markdown, index |
 | **Similarity Search** | Find documents similar to a reference document |
 | **Retrieval Evaluation** | Built-in MRR@5 and Recall@5 metrics |
+| **File Watcher** | Auto-reindex on document changes via watchdog (5s debounce) |
+| **MMR Diversification** | Maximal Marginal Relevance reduces redundant results |
 | **Auto-Migration** | Detects embedding dimension mismatch and rebuilds automatically |
 | **Persistent Storage** | ChromaDB with DuckDB backend |
 | **12 MCP Tools** | Full CRUD + search + evaluation via Claude Code |
@@ -322,31 +340,31 @@ flowchart LR
 
 > **Note:** Ollama is no longer required. FastEmbed downloads models automatically.
 
-### Quick Install
+### Option A: pip install (Recommended)
+
+```bash
+pip install knowledge-rag
+```
+
+That's it. Models download automatically on first run.
+
+### Option B: From source
 
 #### Windows (PowerShell)
 
 ```powershell
-# Clone the repository
 git clone https://github.com/lyonzin/knowledge-rag.git
 cd knowledge-rag
-
-# Create virtual environment
 python -m venv venv
 .\venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
 #### Linux / macOS
 
 ```bash
-# Clone the repository
 git clone https://github.com/lyonzin/knowledge-rag.git
 cd knowledge-rag
-
-# Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
@@ -971,6 +989,17 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.1.0 (2026-03-19)
+
+- **NEW**: DOCX support — paragraphs, tables, heading structure preserved as markdown
+- **NEW**: XLSX support — all sheets extracted as text tables
+- **NEW**: PPTX support — slide-by-slide text extraction
+- **NEW**: CSV support — native parsing, zero extra deps
+- **NEW**: File watcher — auto-reindex on document changes via watchdog (5s debounce)
+- **NEW**: MMR (Maximal Marginal Relevance) — diversifies search results to reduce redundancy
+- **IMPROVED**: 9 file formats supported (was 5)
+- **IMPROVED**: Published on PyPI: `pip install knowledge-rag`
 
 ### v3.0.0 (2026-03-19)
 

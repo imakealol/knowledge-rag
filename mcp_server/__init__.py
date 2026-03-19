@@ -1,6 +1,6 @@
 """Knowledge RAG MCP Server - Local Retrieval-Augmented Generation System"""
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 __author__ = "Ailton Rocha (Lyon.)"
 
 from .config import Config
