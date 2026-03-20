@@ -344,43 +344,37 @@ flowchart LR
 
 > **Note:** Ollama is no longer required. FastEmbed downloads models automatically.
 
-### Option A: pip install (Recommended)
+### Quick Start (3 steps)
 
+**Step 1: Clone and install**
+
+```bash
+git clone https://github.com/lyonzin/knowledge-rag.git
+cd knowledge-rag
+pip install -r requirements.txt
+```
+
+Or install from PyPI into an existing project:
 ```bash
 pip install knowledge-rag
 ```
 
-That's it. Models download automatically on first run.
+**Step 2: Configure Claude Code**
 
-### Option B: From source
-
-#### Windows (PowerShell)
-
-```powershell
-git clone https://github.com/lyonzin/knowledge-rag.git
-cd knowledge-rag
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-#### Linux / macOS
+Run this command to add the MCP server:
 
 ```bash
-git clone https://github.com/lyonzin/knowledge-rag.git
-cd knowledge-rag
-python3 -m venv venv
-source venv/bin/activate
+# Windows
+claude mcp add knowledge-rag -- cmd /c "cd /d C:\path\to\knowledge-rag && python -m mcp_server.server"
 
-# Install dependencies
-pip install -r requirements.txt
+# Linux / macOS
+claude mcp add knowledge-rag -- python -m mcp_server.server --cwd /path/to/knowledge-rag
 ```
 
-### Configure MCP for Claude Code
+Or manually add to `~/.claude.json`:
 
-Add to `~/.claude.json` under `mcpServers`:
-
-#### Windows
+<details>
+<summary>Windows (manual config)</summary>
 
 ```json
 {
@@ -388,23 +382,23 @@ Add to `~/.claude.json` under `mcpServers`:
     "knowledge-rag": {
       "type": "stdio",
       "command": "cmd",
-      "args": ["/c", "cd /d C:\\path\\to\\knowledge-rag && .\\venv\\Scripts\\python.exe -m mcp_server.server"],
+      "args": ["/c", "cd /d C:\\path\\to\\knowledge-rag && python -m mcp_server.server"],
       "env": {}
     }
   }
 }
 ```
+</details>
 
-> **Why `cmd /c cd /d`?** Claude Code may not respect the `cwd` property in MCP configs. This wrapper ensures the working directory is correct before starting the server.
-
-#### Linux / macOS
+<details>
+<summary>Linux / macOS (manual config)</summary>
 
 ```json
 {
   "mcpServers": {
     "knowledge-rag": {
       "type": "stdio",
-      "command": "/path/to/knowledge-rag/venv/bin/python",
+      "command": "python",
       "args": ["-m", "mcp_server.server"],
       "cwd": "/path/to/knowledge-rag",
       "env": {}
@@ -412,13 +406,21 @@ Add to `~/.claude.json` under `mcpServers`:
   }
 }
 ```
+</details>
 
-### Restart Claude Code
+> Replace `C:\path\to\knowledge-rag` with your actual clone path.
 
-After configuring MCP, restart Claude Code. The server will:
-1. Download the embedding model on first run (~50MB, cached in `~/.cache/fastembed/`)
+**Step 3: Restart Claude Code**
+
+```bash
+# Verify the server is connected
+claude mcp list
+```
+
+On first start, the server will:
+1. Download the embedding model (~50MB, cached in `~/.cache/fastembed/`)
 2. Auto-index any documents in the `documents/` directory
-3. Be ready for queries
+3. Start watching for file changes (auto-reindex)
 
 ---
 
