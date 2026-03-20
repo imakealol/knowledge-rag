@@ -1,7 +1,9 @@
 """Tests for search pipeline components (no model/DB required)."""
+
 from mcp_server.server import BM25Index, QueryCache
 
 # ── BM25 Query Expansion ──
+
 
 class TestQueryExpansion:
     def setup_method(self):
@@ -45,6 +47,7 @@ class TestQueryExpansion:
 
 # ── BM25 Search ──
 
+
 class TestBM25Search:
     def test_search_empty_index(self):
         """Search on empty index returns empty."""
@@ -57,7 +60,7 @@ class TestBM25Search:
         bm25 = BM25Index()
         bm25.add_documents(
             ["doc1", "doc2", "doc3"],
-            ["SQL injection bypass techniques", "XSS reflected attack", "SQL injection UNION based"]
+            ["SQL injection bypass techniques", "XSS reflected attack", "SQL injection UNION based"],
         )
         bm25.build_index()
         results = bm25.search("SQL injection")
@@ -76,6 +79,7 @@ class TestBM25Search:
 
 
 # ── Query Cache ──
+
 
 class TestQueryCache:
     def test_cache_miss(self):
@@ -130,6 +134,7 @@ class TestQueryCache:
 
 # ── Keyword Routing ──
 
+
 class TestKeywordRouting:
     def test_routing_detects_redteam(self):
         """Security terms route to redteam."""
@@ -145,11 +150,11 @@ class TestKeywordRouting:
             count = 0
             for kw in keywords:
                 kw_lower = kw.lower()
-                if ' ' in kw_lower:
+                if " " in kw_lower:
                     if kw_lower in query_lower:
                         count += 1
                 else:
-                    if re.search(r'\b' + re.escape(kw_lower) + r'\b', query_lower):
+                    if re.search(r"\b" + re.escape(kw_lower) + r"\b", query_lower):
                         count += 1
             if count > 0:
                 matches[category] = count
@@ -159,5 +164,6 @@ class TestKeywordRouting:
     def test_word_boundary_prevents_false_positive(self):
         """'api' must NOT match inside 'RAPID'."""
         import re
-        assert not re.search(r'\bapi\b', "rapid deployment")
-        assert re.search(r'\bapi\b', "api endpoint")
+
+        assert not re.search(r"\bapi\b", "rapid deployment")
+        assert re.search(r"\bapi\b", "api endpoint")

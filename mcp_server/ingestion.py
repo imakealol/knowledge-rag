@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 # PDF support (optional)
 try:
     import fitz  # PyMuPDF
+
     HAS_PYMUPDF = True
 except ImportError:
     HAS_PYMUPDF = False
@@ -22,18 +23,21 @@ except ImportError:
 # Office formats (optional)
 try:
     import docx  # python-docx
+
     HAS_DOCX = True
 except ImportError:
     HAS_DOCX = False
 
 try:
     import openpyxl
+
     HAS_XLSX = True
 except ImportError:
     HAS_XLSX = False
 
 try:
     from pptx import Presentation
+
     HAS_PPTX = True
 except ImportError:
     HAS_PPTX = False
@@ -47,6 +51,7 @@ from .config import config
 @dataclass
 class Chunk:
     """A chunk of text from a document"""
+
     content: str
     index: int
     start_char: int
@@ -57,6 +62,7 @@ class Chunk:
 @dataclass
 class Document:
     """Parsed document with metadata and chunks"""
+
     id: str
     content: str
     source: Path
@@ -175,7 +181,7 @@ class DocumentParser:
         }
 
         # Extract headers hierarchy
-        header_pattern = r'^(#{1,6})\s+(.+)$'
+        header_pattern = r"^(#{1,6})\s+(.+)$"
         for match in re.finditer(header_pattern, content, re.MULTILINE):
             level = len(match.group(1))
             title = match.group(2).strip()
@@ -189,20 +195,18 @@ class DocumentParser:
             metadata["title"] = filepath.stem
 
         # Extract frontmatter if present (YAML between ---)
-        frontmatter_match = re.match(r'^---\n(.*?)\n---\n', content, re.DOTALL)
+        frontmatter_match = re.match(r"^---\n(.*?)\n---\n", content, re.DOTALL)
         if frontmatter_match:
             metadata["has_frontmatter"] = True
             # Remove frontmatter from content for cleaner indexing
-            content = content[frontmatter_match.end():]
+            content = content[frontmatter_match.end() :]
 
         return content, metadata
 
     def _parse_pdf(self, filepath: Path) -> tuple[str, Dict]:
         """Parse PDF file using PyMuPDF (text extraction, no markdown conversion)."""
         if not HAS_PYMUPDF:
-            raise ImportError(
-                "PyMuPDF (fitz) not installed. Install with: pip install pymupdf"
-            )
+            raise ImportError("PyMuPDF (fitz) not installed. Install with: pip install pymupdf")
 
         metadata = {
             "type": "pdf",
@@ -258,15 +262,15 @@ class DocumentParser:
             metadata["docstring"] = docstring_match.group(1).strip()
 
         # Extract function names
-        func_pattern = r'^def\s+(\w+)\s*\('
+        func_pattern = r"^def\s+(\w+)\s*\("
         metadata["functions"] = re.findall(func_pattern, content, re.MULTILINE)
 
         # Extract class names
-        class_pattern = r'^class\s+(\w+)\s*[:\(]'
+        class_pattern = r"^class\s+(\w+)\s*[:\(]"
         metadata["classes"] = re.findall(class_pattern, content, re.MULTILINE)
 
         # Extract imports
-        import_pattern = r'^(?:from\s+[\w.]+\s+)?import\s+[\w.,\s]+'
+        import_pattern = r"^(?:from\s+[\w.]+\s+)?import\s+[\w.,\s]+"
         metadata["imports"] = re.findall(import_pattern, content, re.MULTILINE)[:10]
 
         return content, metadata
@@ -320,7 +324,7 @@ class DocumentParser:
             text = para.text.strip()
             if text:
                 # Preserve heading structure as markdown
-                if para.style and para.style.name.startswith('Heading'):
+                if para.style and para.style.name.startswith("Heading"):
                     try:
                         level = int(para.style.name.split()[-1])
                         parts.append(f"{'#' * level} {text}")
@@ -468,7 +472,7 @@ class DocumentParser:
                     metadata={
                         "title": metadata.get("title", ""),
                         "type": metadata.get("type", ""),
-                    }
+                    },
                 )
                 chunks.append(chunk)
                 index += 1
@@ -508,14 +512,15 @@ class DocumentParser:
 
         # Step 1: Mask code blocks to prevent splitting on # inside them
         code_blocks = []
+
         def mask_code(match):
             code_blocks.append(match.group(0))
             return f"__CODE_BLOCK_{len(code_blocks) - 1}__"
 
-        masked_text = re.sub(r'```.*?```', mask_code, text, flags=re.DOTALL)
+        masked_text = re.sub(r"```.*?```", mask_code, text, flags=re.DOTALL)
 
         # Step 2: Split by ## and ### headers only (not # which catches code comments)
-        sections = re.split(r'(?=^#{2,3}\s+)', masked_text, flags=re.MULTILINE)
+        sections = re.split(r"(?=^#{2,3}\s+)", masked_text, flags=re.MULTILINE)
 
         # Filter empty sections
         sections = [s for s in sections if s.strip()]
@@ -565,7 +570,7 @@ class DocumentParser:
                 char_offset += len(section)
                 continue
 
-            header_match = re.match(r'^(#{2,3}\s+.+)$', section_stripped, re.MULTILINE)
+            header_match = re.match(r"^(#{2,3}\s+.+)$", section_stripped, re.MULTILINE)
             header_context = header_match.group(1) if header_match else ""
 
             if len(section_stripped) <= self.chunk_size:
@@ -578,7 +583,7 @@ class DocumentParser:
                         "title": metadata.get("title", ""),
                         "type": metadata.get("type", ""),
                         "section_header": header_context,
-                    }
+                    },
                 )
                 chunks.append(chunk)
                 global_index += 1
@@ -611,11 +616,7 @@ class DocumentParser:
             path_str = str(filepath).replace("\\", "/").lower()
 
         # Check category mappings in order (more specific first)
-        for path_pattern, category in sorted(
-            config.category_mappings.items(),
-            key=lambda x: len(x[0]),
-            reverse=True
-        ):
+        for path_pattern, category in sorted(config.category_mappings.items(), key=lambda x: len(x[0]), reverse=True):
             if path_pattern in path_str:
                 return category
 
@@ -638,24 +639,38 @@ class DocumentParser:
 
         # Extract additional technical terms
         # CVE patterns
-        cve_pattern = r'CVE-\d{4}-\d{4,}'
+        cve_pattern = r"CVE-\d{4}-\d{4,}"
         keywords.update(re.findall(cve_pattern, content, re.IGNORECASE))
 
         # MITRE ATT&CK patterns
-        mitre_pattern = r'T\d{4}(?:\.\d{3})?'
+        mitre_pattern = r"T\d{4}(?:\.\d{3})?"
         keywords.update(re.findall(mitre_pattern, content))
 
         # IP addresses
-        ip_pattern = r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b'
+        ip_pattern = r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b"
         ips = re.findall(ip_pattern, content)
         if len(ips) <= 5:  # Only add if not too many (likely real targets)
             keywords.update(ips)
 
         # Common security tools mentioned
         security_tools = [
-            "nmap", "burp", "metasploit", "wireshark", "hydra", "john",
-            "hashcat", "gobuster", "nikto", "sqlmap", "nuclei", "ffuf",
-            "bloodhound", "mimikatz", "responder", "crackmapexec", "impacket"
+            "nmap",
+            "burp",
+            "metasploit",
+            "wireshark",
+            "hydra",
+            "john",
+            "hashcat",
+            "gobuster",
+            "nikto",
+            "sqlmap",
+            "nuclei",
+            "ffuf",
+            "bloodhound",
+            "mimikatz",
+            "responder",
+            "crackmapexec",
+            "impacket",
         ]
         for tool in security_tools:
             if tool in content_lower:

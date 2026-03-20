@@ -1,4 +1,5 @@
 """Tests for configuration integrity."""
+
 from mcp_server.config import config
 
 

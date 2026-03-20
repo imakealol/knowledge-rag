@@ -60,6 +60,7 @@ from .ingestion import Document, DocumentParser
 # QUERY CACHE
 # =============================================================================
 
+
 class QueryCache:
     """
     LRU cache with TTL for search queries.
@@ -120,13 +121,14 @@ class QueryCache:
             "ttl_seconds": self.ttl_seconds,
             "hits": self._hits,
             "misses": self._misses,
-            "hit_rate": f"{(self._hits / total * 100):.1f}%" if total > 0 else "0%"
+            "hit_rate": f"{(self._hits / total * 100):.1f}%" if total > 0 else "0%",
         }
 
 
 # =============================================================================
 # EMBEDDINGS (FastEmbed — ONNX in-process)
 # =============================================================================
+
 
 class FastEmbedEmbeddings:
     """
@@ -176,13 +178,14 @@ class FastEmbedEmbeddings:
         elif input is not None:
             texts = [input]
         else:
-            texts = [kwargs.get('query', '')]
+            texts = [kwargs.get("query", "")]
         return self(texts)
 
 
 # =============================================================================
 # CROSS-ENCODER RERANKER
 # =============================================================================
+
 
 class CrossEncoderReranker:
     """
@@ -206,12 +209,7 @@ class CrossEncoderReranker:
             self._model = TextCrossEncoder(model_name=self.model_name)
             print("[INFO] Reranker model loaded successfully")
 
-    def rerank(
-        self,
-        query: str,
-        documents: List[Dict[str, Any]],
-        top_k: int = 5
-    ) -> List[Dict[str, Any]]:
+    def rerank(self, query: str, documents: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
         """
         Rerank documents using cross-encoder scores.
 
@@ -245,6 +243,7 @@ class CrossEncoderReranker:
 # BM25 INDEX
 # =============================================================================
 
+
 class BM25Index:
     """
     BM25 keyword index for hybrid search with query expansion.
@@ -262,7 +261,7 @@ class BM25Index:
     def _tokenize(self, text: str) -> List[str]:
         """Simple tokenization: lowercase, split on non-alphanumeric, keep hyphens"""
         text_lower = text.lower()
-        tokens = re.findall(r'[a-z0-9][-a-z0-9]*[a-z0-9]|[a-z0-9]', text_lower)
+        tokens = re.findall(r"[a-z0-9][-a-z0-9]*[a-z0-9]|[a-z0-9]", text_lower)
         return tokens
 
     def expand_query(self, query: str) -> str:
@@ -294,7 +293,7 @@ class BM25Index:
 
         # Check bigrams
         for i in range(len(tokens) - 1):
-            bigram = f"{tokens[i]} {tokens[i+1]}"
+            bigram = f"{tokens[i]} {tokens[i + 1]}"
             if bigram in config.query_expansions:
                 expanded_terms.update(config.query_expansions[bigram])
 
@@ -358,6 +357,7 @@ class BM25Index:
 # FILE WATCHER (auto-reindex on document changes)
 # =============================================================================
 
+
 class DocumentWatcher(FileSystemEventHandler):
     """Watches documents directory and triggers reindex on changes."""
 
@@ -383,8 +383,10 @@ class DocumentWatcher(FileSystemEventHandler):
             stats = orch.index_all(force=False)
             changed = stats.get("indexed", 0) + stats.get("updated", 0) + stats.get("deleted", 0)
             if changed > 0:
-                print(f"[WATCHER] Auto-reindexed: {stats['indexed']} new, "
-                      f"{stats['updated']} updated, {stats['deleted']} deleted")
+                print(
+                    f"[WATCHER] Auto-reindexed: {stats['indexed']} new, "
+                    f"{stats['updated']} updated, {stats['deleted']} deleted"
+                )
         except Exception as e:
             print(f"[WATCHER] Reindex failed: {e}")
 
@@ -405,6 +407,7 @@ class DocumentWatcher(FileSystemEventHandler):
 # KNOWLEDGE ORCHESTRATOR
 # =============================================================================
 
+
 class KnowledgeOrchestrator:
     """Main orchestrator for knowledge retrieval with semantic search + keyword routing"""
 
@@ -413,15 +416,13 @@ class KnowledgeOrchestrator:
         self.embed_fn = FastEmbedEmbeddings()
 
         # Initialize ChromaDB with persistent storage (new API v1.4.0+)
-        self.chroma_client = chromadb.PersistentClient(
-            path=str(config.chroma_dir)
-        )
+        self.chroma_client = chromadb.PersistentClient(path=str(config.chroma_dir))
 
         # Get or create collection
         self.collection = self.chroma_client.get_or_create_collection(
             name=config.collection_name,
             embedding_function=self.embed_fn,
-            metadata={"description": "Knowledge base for RAG"}
+            metadata={"description": "Knowledge base for RAG"},
         )
 
         # BM25 index for hybrid search
@@ -454,11 +455,7 @@ class KnowledgeOrchestrator:
             return False
         try:
             # Attempt a real query — ChromaDB will throw if dimensions don't match
-            self.collection.query(
-                query_texts=["dimension check"],
-                n_results=1,
-                include=["documents"]
-            )
+            self.collection.query(query_texts=["dimension check"], n_results=1, include=["documents"])
             return False  # Query succeeded, dimensions match
         except Exception as e:
             error_msg = str(e).lower()
@@ -478,15 +475,9 @@ class KnowledgeOrchestrator:
         try:
             count = self.collection.count()
             if count > 0:
-                all_data = self.collection.get(
-                    include=["documents"],
-                    limit=count
-                )
+                all_data = self.collection.get(include=["documents"], limit=count)
                 if all_data["ids"] and all_data["documents"]:
-                    self.bm25_index.add_documents(
-                        all_data["ids"],
-                        all_data["documents"]
-                    )
+                    self.bm25_index.add_documents(all_data["ids"], all_data["documents"])
                     self.bm25_index.build_index()
                     print(f"[INFO] BM25 index built with {len(self.bm25_index)} documents")
         except Exception as e:
@@ -506,9 +497,16 @@ class KnowledgeOrchestrator:
         Only re-indexes files that are new or modified.
         """
         stats = {
-            "total_files": 0, "indexed": 0, "updated": 0, "skipped": 0,
-            "deleted": 0, "errors": 0, "chunks_added": 0, "chunks_removed": 0,
-            "dedup_skipped": 0, "categories": {}
+            "total_files": 0,
+            "indexed": 0,
+            "updated": 0,
+            "skipped": 0,
+            "deleted": 0,
+            "errors": 0,
+            "chunks_added": 0,
+            "chunks_removed": 0,
+            "dedup_skipped": 0,
+            "categories": {},
         }
 
         documents = self.parser.parse_directory()
@@ -622,24 +620,22 @@ class KnowledgeOrchestrator:
             self._chunk_hashes[content_hash] = chunk_id
             unique_ids.append(chunk_id)
             unique_docs.append(chunk.content)
-            unique_metas.append({
-                "doc_id": doc.id,
-                "source": str(doc.source),
-                "filename": doc.filename,
-                "category": doc.category,
-                "format": doc.format,
-                "chunk_index": chunk.index,
-                "keywords": ",".join(doc.keywords[:10]),
-                "content_hash": content_hash,
-                **chunk.metadata
-            })
+            unique_metas.append(
+                {
+                    "doc_id": doc.id,
+                    "source": str(doc.source),
+                    "filename": doc.filename,
+                    "category": doc.category,
+                    "format": doc.format,
+                    "chunk_index": chunk.index,
+                    "keywords": ",".join(doc.keywords[:10]),
+                    "content_hash": content_hash,
+                    **chunk.metadata,
+                }
+            )
 
         if unique_ids:
-            self.collection.add(
-                ids=unique_ids,
-                documents=unique_docs,
-                metadatas=unique_metas
-            )
+            self.collection.add(ids=unique_ids, documents=unique_docs, metadatas=unique_metas)
             self.bm25_index.add_documents(unique_ids, unique_docs)
 
         return len(unique_ids), dedup_skipped
@@ -647,10 +643,7 @@ class KnowledgeOrchestrator:
     def _remove_document_chunks(self, doc_id: str) -> int:
         """Remove all chunks belonging to a document from ChromaDB and BM25."""
         try:
-            results = self.collection.get(
-                where={"doc_id": doc_id},
-                include=["metadatas"]
-            )
+            results = self.collection.get(where={"doc_id": doc_id}, include=["metadatas"])
 
             if results["ids"]:
                 for meta in results["metadatas"]:
@@ -672,10 +665,7 @@ class KnowledgeOrchestrator:
         try:
             count = self.collection.count()
             if count > 0:
-                all_data = self.collection.get(
-                    include=["metadatas"],
-                    limit=count
-                )
+                all_data = self.collection.get(include=["metadatas"], limit=count)
                 for chunk_id, meta in zip(all_data["ids"], all_data["metadatas"]):
                     content_hash = meta.get("content_hash", "")
                     if content_hash:
@@ -702,7 +692,7 @@ class KnowledgeOrchestrator:
         orphans_cleaned = 0
         if chroma_dir.exists():
             for item in chroma_dir.iterdir():
-                if item.is_dir() and len(item.name) == 36 and '-' in item.name:
+                if item.is_dir() and len(item.name) == 36 and "-" in item.name:
                     try:
                         if not any(item.iterdir()):
                             shutil.rmtree(item)
@@ -715,9 +705,11 @@ class KnowledgeOrchestrator:
         elapsed = time.time() - start_time
         stats["orphan_folders_cleaned"] = orphans_cleaned
         stats["elapsed_seconds"] = round(elapsed, 2)
-        print(f"[REINDEX] Completed in {elapsed:.1f}s "
-              f"(indexed: {stats['indexed']}, updated: {stats['updated']}, "
-              f"skipped: {stats['skipped']}, deleted: {stats['deleted']})")
+        print(
+            f"[REINDEX] Completed in {elapsed:.1f}s "
+            f"(indexed: {stats['indexed']}, updated: {stats['updated']}, "
+            f"skipped: {stats['skipped']}, deleted: {stats['deleted']})"
+        )
 
         return stats
 
@@ -737,7 +729,7 @@ class KnowledgeOrchestrator:
         chroma_dir = config.chroma_dir
         if chroma_dir.exists():
             for item in chroma_dir.iterdir():
-                if item.is_dir() and len(item.name) == 36 and '-' in item.name:
+                if item.is_dir() and len(item.name) == 36 and "-" in item.name:
                     try:
                         shutil.rmtree(item)
                     except Exception:
@@ -746,7 +738,7 @@ class KnowledgeOrchestrator:
         self.collection = self.chroma_client.get_or_create_collection(
             name=config.collection_name,
             embedding_function=self.embed_fn,
-            metadata={"description": "Knowledge base for RAG"}
+            metadata={"description": "Knowledge base for RAG"},
         )
 
         self._indexed_docs = {}
@@ -762,8 +754,10 @@ class KnowledgeOrchestrator:
 
         elapsed = time.time() - start_time
         stats["elapsed_seconds"] = round(elapsed, 2)
-        print(f"[NUCLEAR] Full rebuild completed in {elapsed:.1f}s "
-              f"({stats['indexed']} docs, {stats['chunks_added']} chunks)")
+        print(
+            f"[NUCLEAR] Full rebuild completed in {elapsed:.1f}s "
+            f"({stats['indexed']} docs, {stats['chunks_added']} chunks)"
+        )
 
         return stats
 
@@ -772,11 +766,7 @@ class KnowledgeOrchestrator:
     # =========================================================================
 
     def query(
-        self,
-        query_text: str,
-        max_results: int = None,
-        category_filter: Optional[str] = None,
-        hybrid_alpha: float = 0.5
+        self, query_text: str, max_results: int = None, category_filter: Optional[str] = None, hybrid_alpha: float = 0.5
     ) -> List[Dict[str, Any]]:
         """
         Hybrid search with RRF fusion + cross-encoder reranking.
@@ -815,7 +805,7 @@ class KnowledgeOrchestrator:
                         query_texts=[query_text],
                         n_results=n_candidates,
                         where=where_filter,
-                        include=["documents", "metadatas", "distances"]
+                        include=["documents", "metadatas", "distances"],
                     )
                     if results["ids"] and results["ids"][0]:
                         for i, chunk_id in enumerate(results["ids"][0]):
@@ -823,7 +813,7 @@ class KnowledgeOrchestrator:
                                 "rank": i + 1,
                                 "distance": results["distances"][0][i] if results["distances"] else 0,
                                 "document": results["documents"][0][i] if results["documents"] else "",
-                                "metadata": results["metadatas"][0][i] if results["metadatas"] else {}
+                                "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
                             }
                 except Exception as e:
                     print(f"[WARN] Semantic search failed: {e}")
@@ -835,10 +825,7 @@ class KnowledgeOrchestrator:
                 try:
                     bm25_hits = self.bm25_index.search(query_text, top_k=max_results * 3)
                     for rank, (chunk_id, bm25_score) in enumerate(bm25_hits):
-                        r[chunk_id] = {
-                            "rank": rank + 1,
-                            "bm25_score": bm25_score
-                        }
+                        r[chunk_id] = {"rank": rank + 1, "bm25_score": bm25_score}
                 except Exception as e:
                     print(f"[WARN] BM25 search failed: {e}")
             return r
@@ -875,7 +862,7 @@ class KnowledgeOrchestrator:
                     data = {
                         "document": fetched["documents"][0] if fetched["documents"] else "",
                         "metadata": fetched["metadatas"][0] if fetched["metadatas"] else {},
-                        "distance": 0
+                        "distance": 0,
                     }
                 except Exception:
                     continue
@@ -886,30 +873,28 @@ class KnowledgeOrchestrator:
                 "bm25_rank": bm25_rank if chunk_id in bm25_results else None,
                 "document": data.get("document", ""),
                 "metadata": data.get("metadata", {}),
-                "distance": data.get("distance", 0)
+                "distance": data.get("distance", 0),
             }
 
         # Sort by RRF score — take extra candidates for reranker
         reranker_k = max_results * config.reranker_top_k_multiplier if config.reranker_enabled else max_results
-        sorted_results = sorted(
-            combined_scores.items(),
-            key=lambda x: x[1]["rrf_score"],
-            reverse=True
-        )[:reranker_k]
+        sorted_results = sorted(combined_scores.items(), key=lambda x: x[1]["rrf_score"], reverse=True)[:reranker_k]
 
         # Cross-encoder reranking
         if config.reranker_enabled and sorted_results:
             rerank_input = []
             for chunk_id, data in sorted_results:
-                rerank_input.append({
-                    "chunk_id": chunk_id,
-                    "document": data["document"],
-                    "metadata": data["metadata"],
-                    "rrf_score": data["rrf_score"],
-                    "semantic_rank": data["semantic_rank"],
-                    "bm25_rank": data["bm25_rank"],
-                    "distance": data["distance"],
-                })
+                rerank_input.append(
+                    {
+                        "chunk_id": chunk_id,
+                        "document": data["document"],
+                        "metadata": data["metadata"],
+                        "rrf_score": data["rrf_score"],
+                        "semantic_rank": data["semantic_rank"],
+                        "bm25_rank": data["bm25_rank"],
+                        "distance": data["distance"],
+                    }
+                )
             reranked = self.reranker.rerank(query_text, rerank_input, top_k=max_results)
             sorted_results = [(d["chunk_id"], d) for d in reranked]
 
@@ -942,21 +927,23 @@ class KnowledgeOrchestrator:
             raw = data.get("reranker_score", data.get("rrf_score", 0))
             normalized_score = (raw - min_score) / score_range if score_range > 0 else 1.0
 
-            formatted.append({
-                "content": data.get("document", ""),
-                "source": metadata.get("source", ""),
-                "filename": metadata.get("filename", ""),
-                "category": metadata.get("category", ""),
-                "chunk_index": metadata.get("chunk_index", 0),
-                "score": round(normalized_score, 4),
-                "raw_rrf_score": round(data.get("rrf_score", 0), 6),
-                "reranker_score": round(data.get("reranker_score", 0), 6) if "reranker_score" in data else None,
-                "semantic_rank": s_rank,
-                "bm25_rank": b_rank,
-                "search_method": search_method,
-                "keywords": metadata.get("keywords", "").split(","),
-                "routed_by": routed_category if routed_category else "none"
-            })
+            formatted.append(
+                {
+                    "content": data.get("document", ""),
+                    "source": metadata.get("source", ""),
+                    "filename": metadata.get("filename", ""),
+                    "category": metadata.get("category", ""),
+                    "chunk_index": metadata.get("chunk_index", 0),
+                    "score": round(normalized_score, 4),
+                    "raw_rrf_score": round(data.get("rrf_score", 0), 6),
+                    "reranker_score": round(data.get("reranker_score", 0), 6) if "reranker_score" in data else None,
+                    "semantic_rank": s_rank,
+                    "bm25_rank": b_rank,
+                    "search_method": search_method,
+                    "keywords": metadata.get("keywords", "").split(","),
+                    "routed_by": routed_category if routed_category else "none",
+                }
+            )
 
         # Adjacent Chunk Retrieval — expand content with surrounding chunks for context
         formatted = self._expand_with_adjacent_chunks(formatted)
@@ -1012,10 +999,7 @@ class KnowledgeOrchestrator:
                 continue
 
             try:
-                adj_data = self.collection.get(
-                    ids=adjacent_ids,
-                    include=["documents"]
-                )
+                adj_data = self.collection.get(ids=adjacent_ids, include=["documents"])
                 if adj_data["ids"] and adj_data["documents"]:
                     # Build ordered context: prev + matched + next
                     parts_before = []
@@ -1046,11 +1030,11 @@ class KnowledgeOrchestrator:
             matches = []
             for keyword in keywords:
                 keyword_lower = keyword.lower()
-                if ' ' in keyword_lower:
+                if " " in keyword_lower:
                     if keyword_lower in query_lower:
                         matches.append(keyword)
                 else:
-                    pattern = r'\b' + re.escape(keyword_lower) + r'\b'
+                    pattern = r"\b" + re.escape(keyword_lower) + r"\b"
                     if re.search(pattern, query_lower):
                         matches.append(keyword)
 
@@ -1064,10 +1048,7 @@ class KnowledgeOrchestrator:
         return best_category
 
     def _apply_mmr(
-        self,
-        results: List[Tuple[str, Dict]],
-        top_k: int,
-        lambda_param: float = 0.7
+        self, results: List[Tuple[str, Dict]], top_k: int, lambda_param: float = 0.7
     ) -> List[Tuple[str, Dict]]:
         """
         Maximal Marginal Relevance — diversify results to reduce redundancy.
@@ -1099,10 +1080,7 @@ class KnowledgeOrchestrator:
 
                 # Max similarity to any already-selected doc
                 doc_text = data.get("document", "")
-                max_sim = max(
-                    jaccard_sim(doc_text, sel_data.get("document", ""))
-                    for _, sel_data in selected
-                )
+                max_sim = max(jaccard_sim(doc_text, sel_data.get("document", "")) for _, sel_data in selected)
 
                 mmr_score = lambda_param * relevance - (1 - lambda_param) * max_sim
 
@@ -1132,7 +1110,7 @@ class KnowledgeOrchestrator:
                     "format": doc.format,
                     "metadata": doc.metadata,
                     "keywords": doc.keywords,
-                    "chunk_count": len(doc.chunks)
+                    "chunk_count": len(doc.chunks),
                 }
         except Exception as e:
             print(f"[ERROR] Failed to read document {filepath}: {e}")
@@ -1280,9 +1258,7 @@ class KnowledgeOrchestrator:
             return {"error": "Only http:// and https:// URLs are supported"}
 
         try:
-            response = requests.get(url, timeout=30, headers={
-                "User-Agent": "Mozilla/5.0 (knowledge-rag-ingester)"
-            })
+            response = requests.get(url, timeout=30, headers={"User-Agent": "Mozilla/5.0 (knowledge-rag-ingester)"})
             response.raise_for_status()
         except Exception as e:
             return {"error": f"Failed to fetch URL: {e}"}
@@ -1299,7 +1275,7 @@ class KnowledgeOrchestrator:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         clean_text = f"# {title}\n\nSource: {url}\n\n" + "\n\n".join(lines)
 
-        safe_title = re.sub(r'[^\w\s-]', '', title).strip().replace(' ', '-').lower()[:60]
+        safe_title = re.sub(r"[^\w\s-]", "", title).strip().replace(" ", "-").lower()[:60]
         filename = f"{safe_title}.md"
         filepath = f"{category}/{filename}"
 
@@ -1320,11 +1296,7 @@ class KnowledgeOrchestrator:
             return []
 
         try:
-            results = self.collection.get(
-                where={"doc_id": doc_id},
-                include=["embeddings"],
-                limit=1
-            )
+            results = self.collection.get(where={"doc_id": doc_id}, include=["embeddings"], limit=1)
             if not results["ids"] or not results.get("embeddings"):
                 return []
             embeddings = results.get("embeddings", [])
@@ -1338,7 +1310,7 @@ class KnowledgeOrchestrator:
             similar = self.collection.query(
                 query_embeddings=[query_embedding],
                 n_results=max_results + 20,
-                include=["documents", "metadatas", "distances"]
+                include=["documents", "metadatas", "distances"],
             )
         except Exception:
             return []
@@ -1361,13 +1333,15 @@ class KnowledgeOrchestrator:
             distance = similar["distances"][0][i] if similar["distances"] else 0
             similarity = max(0, 1.0 - distance)
 
-            output.append({
-                "source": source,
-                "filename": meta.get("filename", ""),
-                "category": meta.get("category", ""),
-                "similarity": round(similarity, 4),
-                "preview": (similar["documents"][0][i] or "")[:200],
-            })
+            output.append(
+                {
+                    "source": source,
+                    "filename": meta.get("filename", ""),
+                    "category": meta.get("category", ""),
+                    "similarity": round(similarity, 4),
+                    "preview": (similar["documents"][0][i] or "")[:200],
+                }
+            )
 
             if len(output) >= max_results:
                 break
@@ -1399,13 +1373,15 @@ class KnowledgeOrchestrator:
             mrr_sum += rr
             recall_sum += recall
 
-            per_query.append({
-                "query": query,
-                "expected": expected,
-                "found_at_rank": found_rank,
-                "reciprocal_rank": round(rr, 4),
-                "top_result": results[0]["source"] if results else "none",
-            })
+            per_query.append(
+                {
+                    "query": query,
+                    "expected": expected,
+                    "found_at_rank": found_rank,
+                    "reciprocal_rank": round(rr, 4),
+                    "top_result": results[0]["source"] if results else "none",
+                }
+            )
 
         n = len(test_cases) if test_cases else 1
         return {
@@ -1433,14 +1409,16 @@ class KnowledgeOrchestrator:
         for doc_id, info in self._indexed_docs.items():
             if category and info.get("category") != category:
                 continue
-            docs.append({
-                "id": doc_id,
-                "source": info.get("source", ""),
-                "category": info.get("category", ""),
-                "format": info.get("format", ""),
-                "chunks": info.get("chunks", 0),
-                "keywords": info.get("keywords", [])[:5]
-            })
+            docs.append(
+                {
+                    "id": doc_id,
+                    "source": info.get("source", ""),
+                    "category": info.get("category", ""),
+                    "format": info.get("format", ""),
+                    "chunks": info.get("chunks", 0),
+                    "keywords": info.get("keywords", [])[:5],
+                }
+            )
         return docs
 
     def get_stats(self) -> Dict[str, Any]:
@@ -1471,10 +1449,7 @@ class KnowledgeOrchestrator:
     def _save_metadata(self) -> None:
         """Save index metadata to disk"""
         self._metadata_file.parent.mkdir(parents=True, exist_ok=True)
-        self._metadata_file.write_text(
-            json.dumps(self._indexed_docs, indent=2, ensure_ascii=False),
-            encoding="utf-8"
-        )
+        self._metadata_file.write_text(json.dumps(self._indexed_docs, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 # =============================================================================
@@ -1498,13 +1473,9 @@ def get_orchestrator() -> KnowledgeOrchestrator:
 # MCP Tools — Existing (6)
 # =============================================================================
 
+
 @mcp.tool()
-def search_knowledge(
-    query: str,
-    max_results: int = 5,
-    category: str = None,
-    hybrid_alpha: float = 0.3
-) -> str:
+def search_knowledge(query: str, max_results: int = 5, category: str = None, hybrid_alpha: float = 0.3) -> str:
     """
     Hybrid search combining semantic search + BM25 keyword search with cross-encoder reranking.
 
@@ -1525,22 +1496,30 @@ def search_knowledge(
 
     valid_categories = list(config.keyword_routes.keys()) + ["general"]
     if category and category not in valid_categories:
-        return json.dumps({"status": "error", "message": f"Invalid category '{category}'. Valid: {', '.join(valid_categories)}"})
+        return json.dumps(
+            {"status": "error", "message": f"Invalid category '{category}'. Valid: {', '.join(valid_categories)}"}
+        )
 
     orchestrator = get_orchestrator()
-    results = orchestrator.query(query.strip(), max_results=max_results, category_filter=category, hybrid_alpha=hybrid_alpha)
+    results = orchestrator.query(
+        query.strip(), max_results=max_results, category_filter=category, hybrid_alpha=hybrid_alpha
+    )
 
     if not results:
         return json.dumps({"status": "no_results", "query": query, "message": "No relevant documents found."})
 
-    return json.dumps({
-        "status": "success",
-        "query": query,
-        "hybrid_alpha": hybrid_alpha,
-        "result_count": len(results),
-        "cache_hit_rate": orchestrator.query_cache.stats()["hit_rate"],
-        "results": results
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "success",
+            "query": query,
+            "hybrid_alpha": hybrid_alpha,
+            "result_count": len(results),
+            "cache_hit_rate": orchestrator.query_cache.stats()["hit_rate"],
+            "results": results,
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
@@ -1595,7 +1574,9 @@ def list_categories() -> str:
     """List all document categories with their document counts."""
     orchestrator = get_orchestrator()
     categories = orchestrator.list_categories()
-    return json.dumps({"status": "success", "categories": categories, "total_documents": sum(categories.values())}, indent=2)
+    return json.dumps(
+        {"status": "success", "categories": categories, "total_documents": sum(categories.values())}, indent=2
+    )
 
 
 @mcp.tool()
@@ -1608,7 +1589,11 @@ def list_documents(category: str = None) -> str:
     """
     orchestrator = get_orchestrator()
     docs = orchestrator.list_documents(category=category)
-    return json.dumps({"status": "success", "filter": category or "all", "count": len(docs), "documents": docs}, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {"status": "success", "filter": category or "all", "count": len(docs), "documents": docs},
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
@@ -1622,6 +1607,7 @@ def get_index_stats() -> str:
 # =============================================================================
 # MCP Tools — New (6)
 # =============================================================================
+
 
 @mcp.tool()
 def add_document(content: str, filepath: str, category: str = "general") -> str:
@@ -1756,12 +1742,11 @@ def search_similar(filepath: str, max_results: int = 5) -> str:
     if not results:
         return json.dumps({"status": "no_results", "message": "No similar documents found or document not indexed"})
 
-    return json.dumps({
-        "status": "success",
-        "reference": filepath,
-        "count": len(results),
-        "similar_documents": results
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {"status": "success", "reference": filepath, "count": len(results), "similar_documents": results},
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
@@ -1793,6 +1778,7 @@ def evaluate_retrieval(test_cases: str) -> str:
 # Entry point
 # =============================================================================
 
+
 def main():
     """Run the MCP server"""
     orchestrator = get_orchestrator()
@@ -1803,8 +1789,10 @@ def main():
         print("[MIGRATION] Running nuclear rebuild for embedding model change...")
         try:
             stats = orchestrator.nuclear_rebuild()
-            print(f"[MIGRATION] Rebuild complete: {stats['indexed']} docs, "
-                  f"{stats['chunks_added']} chunks in {stats.get('elapsed_seconds', '?')}s")
+            print(
+                f"[MIGRATION] Rebuild complete: {stats['indexed']} docs, "
+                f"{stats['chunks_added']} chunks in {stats.get('elapsed_seconds', '?')}s"
+            )
         except Exception as e:
             print(f"[ERROR] Migration failed: {e}")
             print("[FALLBACK] Attempting regular index instead...")

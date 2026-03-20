@@ -2,6 +2,7 @@
 
 Mocks embeddings and ChromaDB to avoid model downloads in CI.
 """
+
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch

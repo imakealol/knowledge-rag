@@ -1,4 +1,5 @@
 """Tests for document parsing and chunking."""
+
 import pytest
 
 from mcp_server.ingestion import DocumentParser
@@ -10,6 +11,7 @@ def parser():
 
 
 # ── Format Parsers ──
+
 
 def test_parse_markdown(parser, sample_markdown):
     """Markdown parser extracts headers and content."""
@@ -71,6 +73,7 @@ def test_parse_unsupported(parser, tmp_path):
 
 # ── Markdown Chunking ──
 
+
 def test_markdown_chunks_by_headers(parser, sample_markdown):
     """Markdown files must split by ## headers (small sections may merge)."""
     doc = parser.parse_file(sample_markdown)
@@ -109,10 +112,12 @@ def test_chunk_overlap_fallback(parser, tmp_path):
 
 # ── DOCX/XLSX/PPTX ──
 
+
 def test_docx_parser(parser, tmp_path):
     """DOCX parser extracts paragraphs and headings."""
     try:
         import docx
+
         d = docx.Document()
         d.add_heading("Test Heading", level=1)
         d.add_paragraph("Test content paragraph.")
@@ -130,6 +135,7 @@ def test_xlsx_parser(parser, tmp_path):
     """XLSX parser extracts sheets."""
     try:
         import openpyxl
+
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Data"
@@ -148,6 +154,7 @@ def test_pptx_parser(parser, tmp_path):
     """PPTX parser extracts slides."""
     try:
         from pptx import Presentation
+
         prs = Presentation()
         slide = prs.slides.add_slide(prs.slide_layouts[1])
         slide.shapes.title.text = "Test Slide"
