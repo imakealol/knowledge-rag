@@ -349,50 +349,45 @@ flowchart LR
 **Step 1: Clone and install**
 
 ```bash
-git clone https://github.com/lyonzin/knowledge-rag.git
-cd knowledge-rag
+# Clone to your home directory
+git clone https://github.com/lyonzin/knowledge-rag.git ~/knowledge-rag
+cd ~/knowledge-rag
 pip install -r requirements.txt
 ```
 
-Or install from PyPI into an existing project:
-```bash
-pip install knowledge-rag
-```
+> **Windows users**: `~/knowledge-rag` becomes `C:\Users\YourName\knowledge-rag`
 
 **Step 2: Configure Claude Code**
 
-Run this command to add the MCP server:
+From inside the cloned folder, run:
 
 ```bash
-# Windows
-claude mcp add knowledge-rag -- cmd /c "cd /d C:\path\to\knowledge-rag && python -m mcp_server.server"
-
-# Linux / macOS
-claude mcp add knowledge-rag -- python -m mcp_server.server --cwd /path/to/knowledge-rag
+cd ~/knowledge-rag
+claude mcp add knowledge-rag -s user -- python -m mcp_server.server
 ```
 
-Or manually add to `~/.claude.json`:
+That's it. Claude Code now knows about your RAG server.
 
 <details>
-<summary>Windows (manual config)</summary>
+<summary>Alternative: manual JSON config</summary>
 
+Add to `~/.claude.json`:
+
+**Windows:**
 ```json
 {
   "mcpServers": {
     "knowledge-rag": {
       "type": "stdio",
       "command": "cmd",
-      "args": ["/c", "cd /d C:\\path\\to\\knowledge-rag && python -m mcp_server.server"],
+      "args": ["/c", "cd /d %USERPROFILE%\\knowledge-rag && python -m mcp_server.server"],
       "env": {}
     }
   }
 }
 ```
-</details>
 
-<details>
-<summary>Linux / macOS (manual config)</summary>
-
+**Linux / macOS:**
 ```json
 {
   "mcpServers": {
@@ -400,15 +395,13 @@ Or manually add to `~/.claude.json`:
       "type": "stdio",
       "command": "python",
       "args": ["-m", "mcp_server.server"],
-      "cwd": "/path/to/knowledge-rag",
+      "cwd": "~/knowledge-rag",
       "env": {}
     }
   }
 }
 ```
 </details>
-
-> Replace `C:\path\to\knowledge-rag` with your actual clone path.
 
 **Step 3: Restart Claude Code**
 
