@@ -487,13 +487,12 @@ class DocumentParser:
 
     def _chunk_markdown(self, text: str, metadata: Dict) -> List[Chunk]:
         """
-        Markdown-aware chunking: split by headers first, then size-based.
+        Markdown-aware chunking with code block protection and min-size merging.
 
-        Splits document at ## and ### boundaries so each section becomes a
-        semantically coherent chunk. Sections larger than chunk_size are
-        sub-chunked with the header prepended for context.
-
-        Falls back to _chunk_text() if no headers are found.
+        1. Strips code blocks before splitting (prevents # comments from being treated as headers)
+        2. Splits by ## and ### headers only (not # which catches code comments)
+        3. Merges small chunks (<min_chunk_size) with the next section
+        4. Falls back to _chunk_text() if no headers found
 
         Args:
             text: Full document text
@@ -505,32 +504,71 @@ class DocumentParser:
         if not text:
             return []
 
-        # Split by headers (##, ###) keeping the header attached to its section
-        sections = re.split(r'(?=^#{1,3}\s+)', text, flags=re.MULTILINE)
+        min_chunk_size = 100  # Minimum chars for a standalone chunk
+
+        # Step 1: Mask code blocks to prevent splitting on # inside them
+        code_blocks = []
+        def mask_code(match):
+            code_blocks.append(match.group(0))
+            return f"__CODE_BLOCK_{len(code_blocks) - 1}__"
+
+        masked_text = re.sub(r'```.*?```', mask_code, text, flags=re.DOTALL)
+
+        # Step 2: Split by ## and ### headers only (not # which catches code comments)
+        sections = re.split(r'(?=^#{2,3}\s+)', masked_text, flags=re.MULTILINE)
 
         # Filter empty sections
         sections = [s for s in sections if s.strip()]
 
-        # If no headers found (or only 1 section), fall back to standard chunking
         if len(sections) <= 1:
             return self._chunk_text(text, metadata)
 
+        # Step 3: Restore code blocks in each section
+        def restore_code(section_text):
+            for i, block in enumerate(code_blocks):
+                section_text = section_text.replace(f"__CODE_BLOCK_{i}__", block)
+            return section_text
+
+        sections = [restore_code(s) for s in sections]
+
+        # Step 4: Merge small sections with the next one
+        merged_sections = []
+        buffer = ""
+        for section in sections:
+            if buffer:
+                buffer += "\n\n" + section
+                if len(buffer.strip()) >= min_chunk_size:
+                    merged_sections.append(buffer)
+                    buffer = ""
+            elif len(section.strip()) < min_chunk_size:
+                buffer = section
+            else:
+                merged_sections.append(section)
+
+        if buffer:
+            if merged_sections:
+                merged_sections[-1] += "\n\n" + buffer
+            else:
+                merged_sections.append(buffer)
+
+        if not merged_sections:
+            return self._chunk_text(text, metadata)
+
+        # Step 5: Create chunks from merged sections
         chunks = []
         global_index = 0
         char_offset = 0
 
-        for section in sections:
+        for section in merged_sections:
             section_stripped = section.strip()
             if not section_stripped:
                 char_offset += len(section)
                 continue
 
-            # Extract header from section (first line starting with #)
-            header_match = re.match(r'^(#{1,3}\s+.+)$', section_stripped, re.MULTILINE)
+            header_match = re.match(r'^(#{2,3}\s+.+)$', section_stripped, re.MULTILINE)
             header_context = header_match.group(1) if header_match else ""
 
             if len(section_stripped) <= self.chunk_size:
-                # Section fits in one chunk
                 chunk = Chunk(
                     content=section_stripped,
                     index=global_index,
@@ -545,10 +583,8 @@ class DocumentParser:
                 chunks.append(chunk)
                 global_index += 1
             else:
-                # Section too large — sub-chunk with header prepended
                 sub_chunks = self._chunk_text(section_stripped, metadata)
                 for i, sub_chunk in enumerate(sub_chunks):
-                    # Prepend header context to sub-chunks (except the first which already has it)
                     if i > 0 and header_context:
                         sub_chunk.content = f"{header_context}\n\n{sub_chunk.content}"
                     sub_chunk.index = global_index

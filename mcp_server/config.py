@@ -44,6 +44,7 @@ class Config:
         "security/blueteam": "blueteam",
         "security/ctf": "ctf",
         "security": "security",
+        "aar": "aar",
         "logscale": "logscale",
         "development": "development",
         "general": "general",
@@ -152,6 +153,22 @@ class Config:
         "stego": ["steganography", "stego", "steghide"],
         "rbcd": ["resource-based constrained delegation", "rbcd"],
         "dpapi": ["dpapi", "data protection api", "credential manager"],
+        # CVE aliases
+        "printnightmare": ["printnightmare", "cve-2021-34527", "spoolsv", "printspooler"],
+        "cve-2021-34527": ["printnightmare", "cve-2021-34527", "spoolsv"],
+        "eternalblue": ["eternalblue", "ms17-010", "smbv1"],
+        "ms17-010": ["eternalblue", "ms17-010", "smbv1"],
+        "pwnkit": ["pwnkit", "cve-2021-4034", "pkexec"],
+        "cve-2021-4034": ["pwnkit", "cve-2021-4034", "pkexec"],
+        "log4shell": ["log4shell", "cve-2021-44228", "log4j"],
+        "cve-2021-44228": ["log4shell", "cve-2021-44228", "log4j"],
+        "zerologon": ["zerologon", "cve-2020-1472", "netlogon"],
+        "cve-2020-1472": ["zerologon", "cve-2020-1472", "netlogon"],
+        "petitpotam": ["petitpotam", "cve-2021-36942", "efs", "ntlm relay"],
+        "certifried": ["certifried", "cve-2022-26923", "adcs"],
+        "nopac": ["nopac", "samaccountname", "cve-2021-42278", "cve-2021-42287"],
+        "proxylogon": ["proxylogon", "cve-2021-26855", "exchange"],
+        "proxyshell": ["proxyshell", "cve-2021-34473", "exchange"],
     })
 
     # Search settings
