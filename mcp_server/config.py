@@ -1,7 +1,7 @@
 """Configuration for Knowledge RAG System v3.0"""
 
-from pathlib import Path
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List
 
 BASE_DIR = Path(__file__).parent.parent

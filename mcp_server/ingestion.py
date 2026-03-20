@@ -4,13 +4,13 @@ Multi-format document parsing, chunking, and metadata extraction.
 Supports: MD, PDF, TXT, PY, JSON, DOCX, XLSX, PPTX, CSV
 """
 
-import re
-import json
 import hashlib
-from pathlib import Path
+import json
+import re
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Any
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 # PDF support (optional)
 try:

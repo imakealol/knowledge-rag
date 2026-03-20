@@ -4,6 +4,6 @@ __version__ = "3.2.0"
 __author__ = "Ailton Rocha (Lyon.)"
 
 from .config import Config
-from .ingestion import DocumentParser, Document
+from .ingestion import Document, DocumentParser
 
 __all__ = ["Config", "DocumentParser", "Document"]

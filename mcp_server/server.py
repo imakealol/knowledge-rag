@@ -25,16 +25,15 @@ Data:    2026-03-19
 By Lyon :) Legal Ne?
 """
 
-import json
 import hashlib
+import json
 import re
-import time
 import threading
-import numpy as np
-from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime
+import time
 from collections import OrderedDict
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 # ChromaDB
 import chromadb
@@ -43,20 +42,19 @@ import chromadb
 from fastembed import TextEmbedding
 from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-# BM25 for keyword search (hybrid search)
-from rank_bm25 import BM25Okapi
-
-# File watcher for auto-reindex
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
-
 # FastMCP
 from mcp.server.fastmcp import FastMCP
 
+# BM25 for keyword search (hybrid search)
+from rank_bm25 import BM25Okapi
+from watchdog.events import FileSystemEventHandler
+
+# File watcher for auto-reindex
+from watchdog.observers import Observer
+
 # Local imports
 from .config import config
-from .ingestion import DocumentParser, Document, parse_documents
-
+from .ingestion import Document, DocumentParser
 
 # =============================================================================
 # QUERY CACHE
@@ -144,7 +142,7 @@ class FastEmbedEmbeddings:
         self._dim = config.embedding_dim
         print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D)...")
         self._model = TextEmbedding(model_name=self.model_name)
-        print(f"[INFO] Embedding model loaded successfully")
+        print("[INFO] Embedding model loaded successfully")
 
     def __call__(self, input: List[str]) -> List[List[float]]:
         """
@@ -206,7 +204,7 @@ class CrossEncoderReranker:
         if self._model is None:
             print(f"[INFO] Loading reranker model: {self.model_name}...")
             self._model = TextCrossEncoder(model_name=self.model_name)
-            print(f"[INFO] Reranker model loaded successfully")
+            print("[INFO] Reranker model loaded successfully")
 
     def rerank(
         self,
@@ -466,7 +464,7 @@ class KnowledgeOrchestrator:
             error_msg = str(e).lower()
             if "dimension" in error_msg:
                 print(f"[MIGRATION] Embedding dimension mismatch detected: {e}")
-                print(f"[MIGRATION] Nuclear rebuild required.")
+                print("[MIGRATION] Nuclear rebuild required.")
                 return True
             # Other error — don't trigger rebuild
             print(f"[WARN] Dimension check query failed (non-dimension error): {e}")
@@ -803,7 +801,7 @@ class KnowledgeOrchestrator:
             where_filter = {"category": routed_category}
 
         # Parallel Semantic + BM25 search (threaded for latency reduction)
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor
 
         semantic_results = {}
         bm25_results = {}
@@ -985,7 +983,6 @@ class KnowledgeOrchestrator:
             return results
 
         for result in results:
-            doc_id_chunk = result.get("content", "")
             source = result.get("source", "")
             chunk_idx = result.get("chunk_index", 0)
 

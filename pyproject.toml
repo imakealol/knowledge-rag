@@ -77,3 +77,22 @@ exclude = [
     "scripts/",
     ".gitignore",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # Line length handled by formatter
+
+[tool.coverage.run]
+source = ["mcp_server"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 70
