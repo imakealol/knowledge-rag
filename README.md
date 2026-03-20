@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.1.0-blue.svg)
+![Version](https://img.shields.io/badge/version-3.1.1-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -991,6 +991,15 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.1.1 (2026-03-20)
+
+- **FIX**: Markdown chunker now protects code blocks (`# comments` inside ``` no longer split as headers)
+- **FIX**: Split by `##`/`###` only (not `#` which catches shell comments and code)
+- **FIX**: Minimum chunk size 100 chars — header-only chunks merge with next section
+- **NEW**: AAR category mapping (`documents/aar/` → category "aar" instead of "general")
+- **NEW**: 14 CVE aliases in query expansion (PrintNightmare, EternalBlue, PwnKit, Log4Shell, ZeroLogon, PetitPotam, etc.)
+- **IMPROVED**: c2-operations doc: 32 chunks (12 junk) → 17 chunks (0 junk)
 
 ### v3.1.0 (2026-03-19)
 
