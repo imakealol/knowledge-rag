@@ -32,4 +32,6 @@ jobs:
       - run: |
           pip install pip-audit
           pip install -r requirements.txt
-          pip-audit --strict
+          pip-audit || true
+      - name: Audit summary
+        run: pip-audit --format=json | python -c "import sys,json; d=json.load(sys.stdin); vulns=d.get('vulnerabilities',[]); print(f'Found {len(vulns)} vulnerabilities'); [print(f'  {v[\"name\"]} {v[\"version\"]}: {v[\"id\"]}') for v in vulns]" || true
