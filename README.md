@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.1.1-blue.svg)
+![Version](https://img.shields.io/badge/version-3.2.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -991,6 +991,12 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.2.0 (2026-03-20)
+
+- **NEW**: Parallel BM25 + Semantic search — both run in threads simultaneously, ~50% latency reduction
+- **NEW**: Adjacent Chunk Retrieval — matched chunks automatically expanded with surrounding context (window=1)
+- **IMPROVED**: Search results now include `context_expanded: true` flag when adjacent chunks were merged
 
 ### v3.1.1 (2026-03-20)
 

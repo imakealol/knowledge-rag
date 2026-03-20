@@ -802,41 +802,59 @@ class KnowledgeOrchestrator:
         elif routed_category:
             where_filter = {"category": routed_category}
 
-        # Semantic search (ChromaDB)
+        # Parallel Semantic + BM25 search (threaded for latency reduction)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         semantic_results = {}
-        if hybrid_alpha > 0:
-            try:
-                n_candidates = min(max_results * 3, config.max_results)
-                results = self.collection.query(
-                    query_texts=[query_text],
-                    n_results=n_candidates,
-                    where=where_filter,
-                    include=["documents", "metadatas", "distances"]
-                )
-
-                if results["ids"] and results["ids"][0]:
-                    for i, chunk_id in enumerate(results["ids"][0]):
-                        semantic_results[chunk_id] = {
-                            "rank": i + 1,
-                            "distance": results["distances"][0][i] if results["distances"] else 0,
-                            "document": results["documents"][0][i] if results["documents"] else "",
-                            "metadata": results["metadatas"][0][i] if results["metadatas"] else {}
-                        }
-            except Exception as e:
-                print(f"[WARN] Semantic search failed: {e}")
-
-        # BM25 keyword search
         bm25_results = {}
-        if hybrid_alpha < 1.0:
-            try:
-                bm25_hits = self.bm25_index.search(query_text, top_k=max_results * 3)
-                for rank, (chunk_id, bm25_score) in enumerate(bm25_hits):
-                    bm25_results[chunk_id] = {
-                        "rank": rank + 1,
-                        "bm25_score": bm25_score
-                    }
-            except Exception as e:
-                print(f"[WARN] BM25 search failed: {e}")
+
+        def _do_semantic():
+            r = {}
+            if hybrid_alpha > 0:
+                try:
+                    n_candidates = min(max_results * 3, config.max_results)
+                    results = self.collection.query(
+                        query_texts=[query_text],
+                        n_results=n_candidates,
+                        where=where_filter,
+                        include=["documents", "metadatas", "distances"]
+                    )
+                    if results["ids"] and results["ids"][0]:
+                        for i, chunk_id in enumerate(results["ids"][0]):
+                            r[chunk_id] = {
+                                "rank": i + 1,
+                                "distance": results["distances"][0][i] if results["distances"] else 0,
+                                "document": results["documents"][0][i] if results["documents"] else "",
+                                "metadata": results["metadatas"][0][i] if results["metadatas"] else {}
+                            }
+                except Exception as e:
+                    print(f"[WARN] Semantic search failed: {e}")
+            return r
+
+        def _do_bm25():
+            r = {}
+            if hybrid_alpha < 1.0:
+                try:
+                    bm25_hits = self.bm25_index.search(query_text, top_k=max_results * 3)
+                    for rank, (chunk_id, bm25_score) in enumerate(bm25_hits):
+                        r[chunk_id] = {
+                            "rank": rank + 1,
+                            "bm25_score": bm25_score
+                        }
+                except Exception as e:
+                    print(f"[WARN] BM25 search failed: {e}")
+            return r
+
+        # Run both in parallel when hybrid mode
+        if 0 < hybrid_alpha < 1.0:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                sem_future = executor.submit(_do_semantic)
+                bm25_future = executor.submit(_do_bm25)
+                semantic_results = sem_future.result()
+                bm25_results = bm25_future.result()
+        else:
+            semantic_results = _do_semantic()
+            bm25_results = _do_bm25()
 
         # RRF Fusion
         RRF_K = 60
@@ -942,8 +960,85 @@ class KnowledgeOrchestrator:
                 "routed_by": routed_category if routed_category else "none"
             })
 
+        # Adjacent Chunk Retrieval — expand content with surrounding chunks for context
+        formatted = self._expand_with_adjacent_chunks(formatted)
+
         self.query_cache.put(query_text, max_results, category_filter, hybrid_alpha, formatted)
         return formatted
+
+    def _expand_with_adjacent_chunks(self, results: List[Dict], window: int = 1) -> List[Dict]:
+        """
+        Expand each result with adjacent chunks for broader context.
+
+        For each matched chunk, fetches the chunks immediately before and after it
+        (same document) and prepends/appends their content. This gives the LLM
+        surrounding context while maintaining precise retrieval on the matched chunk.
+
+        Args:
+            results: Formatted search results
+            window: Number of adjacent chunks to fetch on each side (default: 1)
+
+        Returns:
+            Results with expanded content field
+        """
+        if not results:
+            return results
+
+        for result in results:
+            doc_id_chunk = result.get("content", "")
+            source = result.get("source", "")
+            chunk_idx = result.get("chunk_index", 0)
+
+            if not source or chunk_idx is None:
+                continue
+
+            # Find the doc_id from metadata lookup
+            doc_id = None
+            for did, info in self._indexed_docs.items():
+                stored = str(Path(info.get("source", "")).resolve())
+                if stored == str(Path(source).resolve()):
+                    doc_id = did
+                    break
+
+            if not doc_id:
+                continue
+
+            # Fetch adjacent chunks from ChromaDB
+            adjacent_ids = []
+            for offset in range(-window, window + 1):
+                if offset == 0:
+                    continue  # Skip the matched chunk itself
+                adj_id = f"{doc_id}_{chunk_idx + offset}"
+                adjacent_ids.append(adj_id)
+
+            if not adjacent_ids:
+                continue
+
+            try:
+                adj_data = self.collection.get(
+                    ids=adjacent_ids,
+                    include=["documents"]
+                )
+                if adj_data["ids"] and adj_data["documents"]:
+                    # Build ordered context: prev + matched + next
+                    parts_before = []
+                    parts_after = []
+                    for adj_id, adj_doc in zip(adj_data["ids"], adj_data["documents"]):
+                        if adj_doc:
+                            idx = int(adj_id.split("_")[-1])
+                            if idx < chunk_idx:
+                                parts_before.append(adj_doc)
+                            else:
+                                parts_after.append(adj_doc)
+
+                    if parts_before or parts_after:
+                        expanded = "\n\n".join(parts_before + [result["content"]] + parts_after)
+                        result["content"] = expanded
+                        result["context_expanded"] = True
+            except Exception:
+                pass  # Adjacent chunk not found — use original content
+
+        return results
 
     def _route_by_keywords(self, query_text: str) -> Optional[str]:
         """Weighted keyword routing with word boundaries."""
