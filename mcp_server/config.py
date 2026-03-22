@@ -1,10 +1,21 @@
 """Configuration for Knowledge RAG System v3.0"""
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List
 
-BASE_DIR = Path(__file__).parent.parent
+# Determine base directory:
+# 1. KNOWLEDGE_RAG_DIR env var (explicit override)
+# 2. Source checkout (../documents/ exists relative to this file)
+# 3. Current working directory (fallback for pip install)
+_source_dir = Path(__file__).parent.parent
+if os.environ.get("KNOWLEDGE_RAG_DIR"):
+    BASE_DIR = Path(os.environ["KNOWLEDGE_RAG_DIR"])
+elif (_source_dir / "documents").exists():
+    BASE_DIR = _source_dir
+else:
+    BASE_DIR = Path.cwd()
 
 
 @dataclass

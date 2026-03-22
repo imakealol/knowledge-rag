@@ -1542,7 +1542,7 @@ def search_knowledge(query: str, max_results: int = 5, category: str = None, hyb
     max_results = max(1, min(max_results or 5, config.max_results))
     hybrid_alpha = max(0.0, min(hybrid_alpha if hybrid_alpha is not None else 0.3, 1.0))
 
-    valid_categories = list(config.keyword_routes.keys()) + ["general"]
+    valid_categories = list(config.keyword_routes.keys()) + list(set(config.category_mappings.values()))
     if category and category not in valid_categories:
         return json.dumps(
             {"status": "error", "message": f"Invalid category '{category}'. Valid: {', '.join(valid_categories)}"}
