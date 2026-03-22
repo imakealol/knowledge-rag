@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.2.2-blue.svg)
+![Version](https://img.shields.io/badge/version-3.2.3-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -988,6 +988,11 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.2.3 (2026-03-22)
+
+- **FIX**: BASE_DIR smart detection — checks for actual files in `documents/` (not just dir existence)
+- **FIX**: Prevents false positive when `site-packages/documents/` exists as empty dir
 
 ### v3.2.2 (2026-03-22)
 
