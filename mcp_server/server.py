@@ -418,12 +418,8 @@ class KnowledgeOrchestrator:
         # Initialize ChromaDB with persistent storage (new API v1.4.0+)
         self.chroma_client = chromadb.PersistentClient(path=str(config.chroma_dir))
 
-        # Get or create collection
-        self.collection = self.chroma_client.get_or_create_collection(
-            name=config.collection_name,
-            embedding_function=self.embed_fn,
-            metadata={"description": "Knowledge base for RAG"},
-        )
+        # Get or create collection (with auto-recovery from corruption)
+        self.collection = self._safe_get_collection()
 
         # BM25 index for hybrid search
         self.bm25_index = BM25Index()
@@ -444,6 +440,58 @@ class KnowledgeOrchestrator:
 
         # Migration: deferred — checked in main() after full init
         self._needs_rebuild = False
+
+    def _safe_get_collection(self):
+        """
+        Get or create ChromaDB collection with auto-recovery.
+
+        Handles:
+        - Corrupted SQLite DB (segfault/crash during previous indexing)
+        - Embedding function conflict (collection created with different embed fn)
+        - Any other ChromaDB initialization error
+
+        Recovery: deletes corrupted data and starts fresh.
+        """
+        import shutil
+
+        try:
+            return self.chroma_client.get_or_create_collection(
+                name=config.collection_name,
+                embedding_function=self.embed_fn,
+                metadata={"description": "Knowledge base for RAG"},
+            )
+        except (ValueError, Exception) as e:
+            error_msg = str(e).lower()
+            if "conflict" in error_msg or "embedding" in error_msg:
+                print(f"[RECOVERY] Embedding function conflict detected: {e}")
+                print("[RECOVERY] Deleting old collection and recreating...")
+                try:
+                    self.chroma_client.delete_collection(config.collection_name)
+                except Exception:
+                    pass
+            else:
+                print(f"[RECOVERY] ChromaDB error: {e}")
+                print("[RECOVERY] Clearing corrupted database...")
+                # Nuclear cleanup — delete all ChromaDB data
+                chroma_dir = config.chroma_dir
+                if chroma_dir.exists():
+                    for item in chroma_dir.iterdir():
+                        try:
+                            if item.is_dir():
+                                shutil.rmtree(item)
+                            else:
+                                item.unlink()
+                        except Exception:
+                            pass
+                # Recreate client
+                self.chroma_client = chromadb.PersistentClient(path=str(config.chroma_dir))
+
+            print("[RECOVERY] Creating fresh collection...")
+            return self.chroma_client.get_or_create_collection(
+                name=config.collection_name,
+                embedding_function=self.embed_fn,
+                metadata={"description": "Knowledge base for RAG"},
+            )
 
     def _check_dimension_mismatch(self) -> bool:
         """Check if stored embeddings have different dimension than current config.
