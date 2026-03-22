@@ -352,10 +352,15 @@ flowchart LR
 # Clone to your home directory
 git clone https://github.com/lyonzin/knowledge-rag.git ~/knowledge-rag
 cd ~/knowledge-rag
+
+# Create virtual environment and install
+python3 -m venv venv
+source venv/bin/activate        # Linux/macOS
+# .\venv\Scripts\activate       # Windows
 pip install -r requirements.txt
 ```
 
-> **Windows users**: `~/knowledge-rag` becomes `C:\Users\YourName\knowledge-rag`
+> **Windows users**: `~/knowledge-rag` becomes `C:\Users\YourName\knowledge-rag`. Use `python` instead of `python3`.
 
 **Step 2: Configure Claude Code**
 
@@ -363,8 +368,10 @@ From inside the cloned folder, run:
 
 ```bash
 cd ~/knowledge-rag
-claude mcp add knowledge-rag -s user -- python -m mcp_server.server
+claude mcp add knowledge-rag -s user -- ~/knowledge-rag/venv/bin/python -m mcp_server.server
 ```
+
+> **Windows**: `claude mcp add knowledge-rag -s user -- cmd /c "cd /d %USERPROFILE%\knowledge-rag && venv\Scripts\python -m mcp_server.server"`
 
 That's it. Claude Code now knows about your RAG server.
 
@@ -393,14 +400,15 @@ Add to `~/.claude.json`:
   "mcpServers": {
     "knowledge-rag": {
       "type": "stdio",
-      "command": "python",
+      "command": "/home/YOUR_USER/knowledge-rag/venv/bin/python",
       "args": ["-m", "mcp_server.server"],
-      "cwd": "~/knowledge-rag",
+      "cwd": "/home/YOUR_USER/knowledge-rag",
       "env": {}
     }
   }
 }
 ```
+> Replace `YOUR_USER` with your username, or use the full path from `echo $HOME`.
 </details>
 
 **Step 3: Restart Claude Code**
