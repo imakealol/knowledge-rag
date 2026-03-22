@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "knowledge-rag"
-version = "3.2.2"
+version = "3.2.3"
 description = "Local RAG System for Claude Code — Hybrid search + Cross-encoder Reranking + 12 MCP Tools. Zero external servers."
 readme = "README.md"
 license = {text = "MIT"}

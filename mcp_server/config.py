@@ -7,13 +7,25 @@ from typing import Dict, List
 
 # Determine base directory:
 # 1. KNOWLEDGE_RAG_DIR env var (explicit override)
-# 2. Source checkout (../documents/ exists relative to this file)
+# 2. Source checkout (../documents/ with actual files relative to this file)
 # 3. Current working directory (fallback for pip install)
 _source_dir = Path(__file__).parent.parent
+
+
+def _has_documents(path: Path) -> bool:
+    """Check if path has a documents/ dir with actual files (not just empty dirs)."""
+    docs_dir = path / "documents"
+    if not docs_dir.exists():
+        return False
+    return any(docs_dir.rglob("*.*"))
+
+
 if os.environ.get("KNOWLEDGE_RAG_DIR"):
     BASE_DIR = Path(os.environ["KNOWLEDGE_RAG_DIR"])
-elif (_source_dir / "documents").exists():
+elif _has_documents(_source_dir):
     BASE_DIR = _source_dir
+elif _has_documents(Path.cwd()):
+    BASE_DIR = Path.cwd()
 else:
     BASE_DIR = Path.cwd()
 
