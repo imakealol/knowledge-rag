@@ -12,12 +12,19 @@ from typing import Dict, List
 _source_dir = Path(__file__).parent.parent
 
 
+_SUPPORTED_SUFFIXES = frozenset([".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"])
+
+
 def _has_documents(path: Path) -> bool:
-    """Check if path has a documents/ dir with actual files (not just empty dirs)."""
+    """Check if path has a documents/ dir with actual supported files (follows symlinks)."""
     docs_dir = path / "documents"
     if not docs_dir.exists():
         return False
-    return any(docs_dir.rglob("*.*"))
+    for root, _, files in os.walk(docs_dir, followlinks=True):
+        for f in files:
+            if Path(f).suffix.lower() in _SUPPORTED_SUFFIXES:
+                return True
+    return False
 
 
 if os.environ.get("KNOWLEDGE_RAG_DIR"):
