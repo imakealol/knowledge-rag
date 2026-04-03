@@ -999,7 +999,7 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 
 ### v3.2.4 (2026-04-03)
 
-- **NEW**: Symlink support — `documents/` directory now follows symbolic links recursively ([#13](https://github.com/lyonzin/knowledge-rag/issues/13))
+- **NEW**: Symlink support â€” `documents/` directory now follows symbolic links recursively ([#13](https://github.com/lyonzin/knowledge-rag/issues/13))
 - **NEW**: Circular symlink loop protection via realpath deduplication
 - **IMPROVED**: `_has_documents()` detection now validates against supported formats only (stricter than before)
 
