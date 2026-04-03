@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.2.3-blue.svg)
+![Version](https://img.shields.io/badge/version-3.2.4-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -996,6 +996,12 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.2.4 (2026-04-03)
+
+- **NEW**: Symlink support — `documents/` directory now follows symbolic links recursively ([#13](https://github.com/lyonzin/knowledge-rag/issues/13))
+- **NEW**: Circular symlink loop protection via realpath deduplication
+- **IMPROVED**: `_has_documents()` detection now validates against supported formats only (stricter than before)
 
 ### v3.2.3 (2026-03-22)
 

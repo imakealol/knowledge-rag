@@ -6,6 +6,7 @@ Supports: MD, PDF, TXT, PY, JSON, DOCX, XLSX, PPTX, CSV
 
 import hashlib
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -150,12 +151,23 @@ class DocumentParser:
         return doc
 
     def parse_directory(self, directory: Path = None) -> List[Document]:
-        """Parse all supported files in a directory recursively"""
+        """Parse all supported files in a directory recursively (follows symlinks)."""
         directory = Path(directory) if directory else config.documents_dir
         documents = []
+        seen_dirs = set()
+        supported = set(config.supported_formats)
 
-        for ext in config.supported_formats:
-            for filepath in directory.rglob(f"*{ext}"):
+        for root, dirs, files in os.walk(directory, followlinks=True):
+            real_root = os.path.realpath(root)
+            if real_root in seen_dirs:
+                dirs.clear()
+                continue
+            seen_dirs.add(real_root)
+
+            for fname in files:
+                filepath = Path(root) / fname
+                if filepath.suffix.lower() not in supported:
+                    continue
                 try:
                     doc = self.parse_file(filepath)
                     if doc:
