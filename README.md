@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.3.0-blue.svg)
+![Version](https://img.shields.io/badge/version-3.3.1-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -372,21 +372,23 @@ flowchart LR
 
 ### Quick Start (3 steps)
 
-**Step 1: Clone and install**
+**Step 1: Install**
 
 ```bash
-# Clone to your home directory
+# Option A: pip install (recommended)
+pip install knowledge-rag
+knowledge-rag init              # Exports config template, presets, creates documents/
+
+# Option B: Clone from source
 git clone https://github.com/lyonzin/knowledge-rag.git ~/knowledge-rag
 cd ~/knowledge-rag
-
-# Create virtual environment and install
 python3 -m venv venv
 source venv/bin/activate        # Linux/macOS
 # .\venv\Scripts\activate       # Windows
 pip install -r requirements.txt
 ```
 
-> **Windows users**: `~/knowledge-rag` becomes `C:\Users\YourName\knowledge-rag`. Use `python` instead of `python3`.
+> **Windows users**: Use `python` instead of `python3`.
 
 **Step 2: Configure Claude Code**
 
@@ -1156,6 +1158,12 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.3.1 (2026-04-06)
+
+- **FIX**: YAML null values (`category_mappings:` without value) no longer crash the server — falls back to defaults
+- **FIX**: Presets and config template now bundled in pip wheel (`knowledge-rag init` exports them)
+- **NEW**: `knowledge-rag init` CLI command — exports config template, presets, and creates documents/ in current directory
 
 ### v3.3.0 (2026-04-05)
 

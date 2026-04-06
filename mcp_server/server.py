@@ -1825,8 +1825,53 @@ def evaluate_retrieval(test_cases: str) -> str:
 # =============================================================================
 
 
+def _handle_init():
+    """Export config template and presets to current directory."""
+    import shutil
+
+    data_dir = Path(__file__).parent / "data"
+    if not data_dir.exists():
+        print("[ERROR] Bundled data not found. If installed from git, use presets/ directly.")
+        return
+
+    cwd = Path.cwd()
+
+    # Copy config.example.yaml
+    src = data_dir / "config.example.yaml"
+    if src.exists():
+        dst = cwd / "config.example.yaml"
+        shutil.copy2(src, dst)
+        print(f"[OK] {dst}")
+
+    # Copy presets
+    presets_dir = cwd / "presets"
+    presets_dir.mkdir(exist_ok=True)
+    for f in data_dir.glob("*.yaml"):
+        if f.name == "config.example.yaml":
+            continue
+        dst = presets_dir / f.name
+        shutil.copy2(f, dst)
+        print(f"[OK] {dst}")
+
+    # Create documents dir
+    docs_dir = cwd / "documents"
+    docs_dir.mkdir(exist_ok=True)
+    print(f"[OK] {docs_dir}/")
+
+    print("\nDone. Quick start:")
+    print("  cp presets/general.yaml config.yaml     # or cybersecurity, developer, research")
+    print("  # Add your documents to documents/")
+    print("  # Restart Claude Code")
+
+
 def main():
     """Run the MCP server"""
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "init":
+        _handle_init()
+        return
+
     orchestrator = get_orchestrator()
 
     # Migration: check dimension mismatch AFTER full init (avoids segfault during __init__)

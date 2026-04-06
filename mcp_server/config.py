@@ -76,6 +76,16 @@ def _get(section: str, key: str, default):
     return val if val is not None else default
 
 
+def _get_top(key: str, default):
+    """Get a top-level value from YAML, falling back to default if missing or None."""
+    val = _yaml.get(key)
+    if val is None:
+        return default
+    if not isinstance(val, type(default)):
+        return default
+    return val
+
+
 # ============================================================================
 # DEFAULTS (used when no config.yaml or field is omitted)
 # ============================================================================
@@ -403,17 +413,17 @@ class Config:
 
     # Category mappings
     category_mappings: Dict[str, str] = field(
-        default_factory=lambda: _yaml.get("category_mappings", _DEFAULT_CATEGORY_MAPPINGS)
+        default_factory=lambda: _get_top("category_mappings", _DEFAULT_CATEGORY_MAPPINGS)
     )
 
     # Keyword routes
     keyword_routes: Dict[str, List[str]] = field(
-        default_factory=lambda: _yaml.get("keyword_routes", _DEFAULT_KEYWORD_ROUTES)
+        default_factory=lambda: _get_top("keyword_routes", _DEFAULT_KEYWORD_ROUTES)
     )
 
     # Query expansions
     query_expansions: Dict[str, List[str]] = field(
-        default_factory=lambda: _yaml.get("query_expansions", _DEFAULT_QUERY_EXPANSIONS)
+        default_factory=lambda: _get_top("query_expansions", _DEFAULT_QUERY_EXPANSIONS)
     )
 
     # Search settings
