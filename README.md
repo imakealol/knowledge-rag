@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.2.4-blue.svg)
+![Version](https://img.shields.io/badge/version-3.3.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -25,7 +25,7 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 **12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
 
-[What's New](#whats-new-in-v310) | [Installation](#installation) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v330) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
@@ -72,6 +72,31 @@ After the initial rebuild, startup and queries are faster than v2.x because ther
 
 ---
 
+## What's New in v3.3.0
+
+### YAML Configuration System
+
+All settings are now customizable via `config.yaml` — no more editing Python code. Categories, keyword routing, query expansions, models, chunking, and paths are all configurable through a single YAML file.
+
+### Domain Presets
+
+Four ready-to-use presets ship with the project. Copy one to `config.yaml` and you're done:
+
+- **Cybersecurity** — 8 categories, 200+ keywords, 69 query expansions (red team, blue team, CTFs, threat hunting)
+- **Developer** — 9 categories, 150+ keywords, 50+ expansions (full-stack, APIs, DevOps, cloud, databases)
+- **Research** — 9 categories, 100+ keywords, 40+ expansions (academic papers, thesis, lab notebooks)
+- **General** — Zero routing, zero expansions. Pure semantic search for any domain.
+
+### Generic Use Support
+
+With `category_mappings: {}`, `keyword_routes: {}`, and `query_expansions: {}`, the system operates as a domain-agnostic semantic search engine. No security-specific logic unless you want it.
+
+### Backwards Compatible
+
+No `config.yaml`? The system uses built-in defaults — identical behavior to v3.2.x. Zero migration required.
+
+---
+
 ## What's New in v3.1.0
 
 ### Office Document Support (DOCX, XLSX, PPTX, CSV)
@@ -104,7 +129,7 @@ After hybrid RRF fusion produces initial candidates, a cross-encoder (Xenova/ms-
 
 ### Query Expansion
 
-54 security-term synonym mappings expand abbreviated queries before BM25 search. Searching for "sqli" automatically includes "sql injection"; "privesc" includes "privilege escalation"; "pth" includes "pass-the-hash". The full expansion table is in `config.py`.
+69 security-term synonym mappings expand abbreviated queries before BM25 search. Searching for "sqli" automatically includes "sql injection"; "privesc" includes "privilege escalation"; "pth" includes "pass-the-hash". Customize or replace these in `config.yaml` (see [Configuration](#configuration)).
 
 ### 6 New MCP Tools (12 Total)
 
@@ -132,7 +157,7 @@ Knowledge RAG is a **100% local** hybrid search system that integrates with Clau
 - **Zero External Dependencies**: Everything runs in-process. No Ollama, no API keys, no servers to manage.
 - **Hybrid Search + Reranking**: Semantic embeddings + BM25 keywords fused with RRF, then reranked by a cross-encoder for maximum precision.
 - **Markdown-Aware**: `.md` files are chunked by section headers, preserving semantic coherence.
-- **Query Expansion**: 54 security-term synonyms ensure abbreviated queries find relevant content.
+- **Query Expansion**: Customizable synonym mappings ensure abbreviated queries find relevant content (69 security terms included as preset).
 - **Privacy First**: All processing happens locally. No data leaves your machine.
 - **Multi-Format**: Supports MD, PDF, DOCX, XLSX, PPTX, CSV, TXT, Python, JSON files.
 - **Smart Routing**: Keyword-based routing with word boundaries for accurate category filtering.
@@ -147,7 +172,8 @@ Knowledge RAG is a **100% local** hybrid search system that integrates with Clau
 |---------|-------------|
 | **Hybrid Search** | Semantic + BM25 keyword search with Reciprocal Rank Fusion |
 | **Cross-Encoder Reranker** | Xenova/ms-marco-MiniLM-L-6-v2 re-scores top candidates for precision |
-| **Query Expansion** | 54 security-term synonym mappings (sqli, privesc, pth, etc.) |
+| **YAML Configuration** | Fully customizable via `config.yaml` with domain-specific presets |
+| **Query Expansion** | 69 security-term synonym mappings (sqli, privesc, pth, etc.) — customizable |
 | **Markdown-Aware Chunking** | `.md` files split by `##`/`###` sections instead of fixed windows |
 | **In-Process Embeddings** | FastEmbed ONNX Runtime (BAAI/bge-small-en-v1.5, 384D) |
 | **Keyword Routing** | Word-boundary aware routing for domain-specific queries |
@@ -508,7 +534,7 @@ evaluate_retrieval(test_cases='[
 
 ## API Reference
 
-### Existing Tools (6)
+### Search & Query
 
 #### `search_knowledge`
 
@@ -648,7 +674,7 @@ Get statistics about the knowledge base index.
 
 ---
 
-### New Tools (6)
+### Document Management
 
 #### `add_document`
 
@@ -799,76 +825,210 @@ Evaluate retrieval quality with test queries. Useful for tuning `hybrid_alpha`, 
 
 ## Configuration
 
-All configuration lives in `mcp_server/config.py` via the `Config` dataclass.
+Knowledge RAG is fully configurable via a `config.yaml` file in the project root. If no `config.yaml` exists, sensible defaults are used — the system works out of the box with zero configuration.
 
-### Embedding Model
+### Quick Start
 
-```python
-embedding_model: str = "BAAI/bge-small-en-v1.5"
-embedding_dim: int = 384
+```bash
+# Option 1: Use a preset
+cp presets/cybersecurity.yaml config.yaml    # Offensive/defensive security, CTFs
+cp presets/developer.yaml config.yaml        # Software engineering, APIs, DevOps
+cp presets/research.yaml config.yaml         # Academic research, papers, studies
+cp presets/general.yaml config.yaml          # Blank slate, pure semantic search
+
+# Option 2: Start from the documented template
+cp config.example.yaml config.yaml
+# Edit config.yaml to your needs
 ```
 
-FastEmbed supports any model from its [model list](https://qdrant.github.io/fastembed/examples/Supported_Models/). To change the model, update `embedding_model` and `embedding_dim` in `config.py`, then run `reindex_documents(full_rebuild=True)` to rebuild with the new model.
+Restart Claude Code after changing `config.yaml`.
 
-### Cross-Encoder Reranker
+### config.yaml Structure
 
-```python
-reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
-reranker_enabled: bool = True
-reranker_top_k_multiplier: int = 3  # Retrieve 3x candidates for reranking
+```yaml
+# Paths — where your documents live
+paths:
+  documents_dir: "./documents"    # Scanned recursively
+  data_dir: "./data"              # Index storage
+
+# Documents — what gets indexed and how
+documents:
+  supported_formats:              # File types to index
+    - .md
+    - .txt
+    - .pdf
+    - .docx
+    # - .py                       # Uncomment to index code
+  chunking:
+    chunk_size: 1000              # Max chars per chunk
+    chunk_overlap: 200            # Shared chars between chunks
+
+# Models — AI models for search (all run locally, no API keys)
+models:
+  embedding:
+    model: "BAAI/bge-small-en-v1.5"   # ONNX, ~33MB, auto-downloaded
+    dimensions: 384
+  reranker:
+    enabled: true                      # Set false on low-resource machines
+    model: "Xenova/ms-marco-MiniLM-L-6-v2"
+    top_k_multiplier: 3               # Candidates fetched before reranking
+
+# Search — result limits and collection name
+search:
+  default_results: 5
+  max_results: 20
+  collection_name: "knowledge_base"   # Change for separate knowledge bases
+
+# Categories — auto-tag documents by folder path
+# Set to {} to disable categorization entirely
+category_mappings:
+  "security/redteam": "redteam"
+  "security/blueteam": "blueteam"
+  "notes": "notes"
+
+# Keyword routing — prioritize categories based on query keywords
+# Set to {} for pure semantic search with no routing bias
+keyword_routes:
+  redteam:
+    - pentest
+    - exploit
+    - privilege escalation
+
+# Query expansion — expand abbreviations for better BM25 recall
+# Set to {} for no expansion (search terms used as-is)
+query_expansions:
+  sqli:
+    - sql injection
+    - sqli
+  privesc:
+    - privilege escalation
+    - privesc
 ```
 
-The reranker fetches `max_results * reranker_top_k_multiplier` candidates from RRF fusion, re-scores them with the cross-encoder, and returns the top `max_results`. Set `reranker_enabled = False` to disable reranking and use RRF scores directly.
+> See `config.example.yaml` for the fully documented template with explanations for every field.
 
-### Query Expansion
+### Presets
 
-```python
-query_expansions: Dict[str, List[str]] = {
-    "sqli": ["sql injection", "sqli"],
-    "privesc": ["privilege escalation", "privesc"],
-    "pth": ["pass-the-hash", "pth"],
-    "mimikatz": ["mimikatz", "sekurlsa", "logonpasswords"],
-    # ... 54 total mappings
-}
+Pre-built configurations for common use cases. Each preset is a complete `config.yaml` ready to use:
+
+| Preset | File | Categories | Keywords | Expansions | Best For |
+|--------|------|-----------|----------|-----------|----------|
+| **Cybersecurity** | `presets/cybersecurity.yaml` | 8 | 200+ | 69 | Red/Blue Team, CTFs, threat hunting, exploit dev |
+| **Developer** | `presets/developer.yaml` | 9 | 150+ | 50+ | Full-stack dev, APIs, DevOps, cloud, databases |
+| **Research** | `presets/research.yaml` | 9 | 100+ | 40+ | Academic papers, thesis, lab notebooks, datasets |
+| **General** | `presets/general.yaml` | 0 | 0 | 0 | Blank slate — pure semantic search, no domain logic |
+
+**Creating your own preset**: Copy `config.example.yaml`, fill in your categories/keywords/expansions, save to `presets/your-domain.yaml`. Share it with the community via PR.
+
+### Configuration Reference
+
+#### Paths
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `paths.documents_dir` | `./documents` | Root folder scanned recursively for documents |
+| `paths.data_dir` | `./data` | Internal storage for ChromaDB and index metadata |
+
+Relative paths resolve from the project root. Absolute paths work too. The `KNOWLEDGE_RAG_DIR` environment variable overrides the project root.
+
+#### Documents
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `documents.supported_formats` | .md .txt .pdf .py .json .docx .xlsx .pptx .csv | File extensions to index |
+| `documents.chunking.chunk_size` | 1000 | Max characters per chunk |
+| `documents.chunking.chunk_overlap` | 200 | Characters shared between consecutive chunks |
+
+**Chunking guidelines**: Short notes → 500/100. General use → 1000/200. Long technical docs → 1500/300.
+
+For `.md` files, chunking splits at `##` and `###` header boundaries first. Sections larger than `chunk_size` are sub-chunked with overlap. Non-markdown files use fixed-size chunking.
+
+#### Models
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `models.embedding.model` | `BAAI/bge-small-en-v1.5` | Embedding model (ONNX, runs locally) |
+| `models.embedding.dimensions` | 384 | Vector dimensions (must match model) |
+| `models.reranker.enabled` | true | Enable cross-encoder reranking |
+| `models.reranker.model` | `Xenova/ms-marco-MiniLM-L-6-v2` | Reranker model |
+| `models.reranker.top_k_multiplier` | 3 | Fetch N*multiplier candidates for reranking |
+
+**Embedding model options** (fastest → most accurate):
+- `BAAI/bge-small-en-v1.5` — 384D, ~33MB (default)
+- `BAAI/bge-base-en-v1.5` — 768D, ~130MB
+- `BAAI/bge-large-en-v1.5` — 1024D, ~335MB
+- `intfloat/multilingual-e5-small` — 384D, 100+ languages
+
+> **Warning**: Changing the embedding model after indexing requires `reindex_documents(full_rebuild=True)`.
+
+The reranker fetches `max_results * top_k_multiplier` candidates from RRF fusion, re-scores them with the cross-encoder, and returns the top `max_results`. Set `enabled: false` to disable and use RRF scores directly.
+
+#### Search
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `search.default_results` | 5 | Results returned when no limit specified |
+| `search.max_results` | 20 | Hard cap even if client requests more |
+| `search.collection_name` | `knowledge_base` | ChromaDB collection — change for separate KBs |
+
+#### Categories
+
+Map folder paths to category names. Documents in matching folders get auto-tagged, enabling filtered searches.
+
+```yaml
+# Most specific match wins:
+# documents/security/redteam/exploit.md → "redteam"
+# documents/security/overview.md → "security"
+category_mappings:
+  "security/redteam": "redteam"
+  "security": "security"
 ```
 
-Query expansion runs on BM25 queries only (before tokenization). Add custom mappings to `query_expansions` in `config.py` for your domain. Supports single tokens, bigrams, and full query matches.
+Set `category_mappings: {}` to disable — documents are still searchable, just without category filters.
 
-### Chunking
+#### Keyword Routing
 
-```python
-chunk_size: int = 1000      # Characters per chunk (for non-markdown files)
-chunk_overlap: int = 200    # Overlap between chunks
+Route queries to categories based on keywords. When a query contains listed keywords, results from that category are prioritized (not filtered — other categories still appear, ranked lower).
+
+```yaml
+keyword_routes:
+  redteam:
+    - pentest
+    - exploit
+    - sqli
 ```
 
-For `.md` files, chunking splits at `##` and `###` header boundaries first. Sections larger than `chunk_size` are sub-chunked with overlap. Non-markdown files use fixed-size chunking with overlap.
+Single-word keywords use regex word boundaries (`\b`) — "api" won't match "RAPID". Multi-word keywords use substring matching. When multiple keywords match, the category with the most matches wins.
 
-### Keyword Routing
+Set `keyword_routes: {}` for pure semantic search.
 
-```python
-keyword_routes: Dict[str, List[str]] = {
-    "redteam": ["pentest", "exploit", "mimikatz", "sqli", "xss", ...],
-    "security": ["anti-bot", "waf bypass", "cloudflare", ...],
-    "logscale": ["logscale", "lql", "formattime", ...],
-    "ctf": ["ctf", "flag", "hackthebox", "tryhackme", ...],
-    "development": ["python", "typescript", "api", ...],
-    "blueteam": ["detection", "sigma", "yara", ...],
-}
+#### Query Expansion
+
+Expand search terms with synonyms before BM25 search. Supports single tokens, bigrams, and full query matches.
+
+```yaml
+query_expansions:
+  sqli:
+    - sql injection
+    - sqli
+  k8s:
+    - kubernetes
+    - k8s
 ```
 
-Single-word keywords use regex word boundaries (`\b`) to prevent false positives (e.g., "api" won't match "RAPID"). Multi-word keywords use substring matching. When multiple keywords match, the category with the most matches wins.
+Set `query_expansions: {}` for no expansion.
 
 ### Hybrid Search Tuning
 
-| hybrid_alpha | Behavior | Speed | Best For |
-|--------------|----------|-------|----------|
-| 0.0 | Pure BM25 keyword | **Instant** | Exact terms, CVEs, tool names |
-| 0.3 | Keyword-heavy **(default)** | Fast | Technical queries with specific terms |
-| 0.5 | Balanced | Medium | General queries |
-| 0.7 | Semantic-heavy | Medium | Conceptual queries, related topics |
-| 1.0 | Pure semantic | Medium | "How to..." questions, abstract concepts |
+| hybrid_alpha | Behavior | Best For |
+|--------------|----------|----------|
+| 0.0 | Pure BM25 keyword | Exact terms, CVEs, tool names |
+| 0.3 | Keyword-heavy **(default)** | Technical queries with specific terms |
+| 0.5 | Balanced | General queries |
+| 0.7 | Semantic-heavy | Conceptual queries, related topics |
+| 1.0 | Pure semantic | "How to..." questions, abstract concepts |
 
-> In v3.0, all `hybrid_alpha` values have similar speed because FastEmbed runs in-process. The speed difference between 0.0 and 1.0 is minimal compared to v2.x where Ollama added network overhead.
+> All `hybrid_alpha` values have similar speed because FastEmbed runs in-process.
 
 ---
 
@@ -878,25 +1038,25 @@ Single-word keywords use regex word boundaries (`\b`) to prevent false positives
 knowledge-rag/
 ├── mcp_server/
 │   ├── __init__.py
-│   ├── config.py          # Configuration: models, chunking, routing, expansion
-│   ├── ingestion.py       # Document parsing, markdown-aware chunking, metadata
-│   └── server.py          # MCP server, ChromaDB, BM25, reranker, 12 tools
-├── documents/             # Your documents go here
-│   ├── security/          # Security, pentest, exploits
-│   ├── development/       # Code, APIs, frameworks
-│   ├── ctf/               # CTF writeups
-│   ├── logscale/          # LogScale/LQL docs
-│   └── general/           # Everything else
+│   ├── config.py            # YAML config loader + defaults
+│   ├── ingestion.py         # Document parsing, chunking, metadata extraction
+│   └── server.py            # MCP server, ChromaDB, BM25, reranker, 12 tools
+├── config.example.yaml      # Documented config template (copy to config.yaml)
+├── config.yaml              # Your active configuration (git-ignored)
+├── presets/                  # Ready-to-use domain configurations
+│   ├── cybersecurity.yaml   # Red/Blue Team, CTFs, threat hunting
+│   ├── developer.yaml       # Software engineering, APIs, DevOps
+│   ├── research.yaml        # Academic research, papers, studies
+│   └── general.yaml         # Blank slate, zero domain logic
+├── documents/               # Your documents (scanned recursively)
 ├── data/
-│   ├── chroma_db/         # ChromaDB vector database storage
-│   └── index_metadata.json # Incremental indexing metadata
-├── .claude/
-│   └── mcp.json           # Project MCP config (optional)
-├── venv/                  # Python virtual environment
-├── requirements.txt       # Python dependencies
-├── CHANGELOG.md           # Version history
-├── LICENSE                # MIT License
-└── README.md              # This file
+│   ├── chroma_db/           # ChromaDB vector database
+│   └── index_metadata.json  # Incremental indexing state
+├── tests/                   # Test suite (55 tests)
+├── venv/                    # Python virtual environment
+├── requirements.txt         # Python dependencies
+├── LICENSE                  # MIT License
+└── README.md
 ```
 
 ---
@@ -997,6 +1157,18 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 
 ## Changelog
 
+### v3.3.0 (2026-04-05)
+
+- **NEW**: YAML configuration system — fully customizable via `config.yaml`
+- **NEW**: Domain presets — `presets/cybersecurity.yaml`, `presets/developer.yaml`, `presets/research.yaml`, `presets/general.yaml`
+- **NEW**: `config.example.yaml` — documented template with explanations for every field
+- **NEW**: Categories, keyword routing, and query expansions are now user-configurable (no more editing `config.py`)
+- **NEW**: Empty config = pure semantic search with zero domain logic (ideal for generic use)
+- **NEW**: Warning log for empty files during indexing (previously silent skip)
+- **IMPROVED**: README rewritten — full configuration reference, preset documentation, updated project structure
+- **IMPROVED**: `pyyaml` added as dependency
+- **BREAKING**: None — system works identically without `config.yaml` (backwards compatible)
+
 ### v3.2.4 (2026-04-03)
 
 - **NEW**: Symlink support — `documents/` directory now follows symbolic links recursively ([#13](https://github.com/lyonzin/knowledge-rag/issues/13))
@@ -1052,7 +1224,7 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 - **BREAKING**: Changed embedding model from nomic-embed-text (768D) to BAAI/bge-small-en-v1.5 (384D)
 - **NEW**: Cross-encoder reranker (Xenova/ms-marco-MiniLM-L-6-v2) applied after RRF fusion
 - **NEW**: Markdown-aware chunking — `.md` files split by `##`/`###` sections
-- **NEW**: Query expansion with 54 security-term synonym mappings
+- **NEW**: Query expansion with 69 security-term synonym mappings
 - **NEW**: `add_document` — add document from raw content string
 - **NEW**: `update_document` — update existing document (re-chunks and re-indexes)
 - **NEW**: `remove_document` — remove document from index (optionally delete file)
@@ -1136,6 +1308,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [FastMCP](https://github.com/anthropics/mcp) — Model Context Protocol framework
 - [PyMuPDF](https://pymupdf.readthedocs.io/) — PDF parsing
 - [rank-bm25](https://github.com/dorianbrown/rank_bm25) — BM25 Okapi implementation
+- [PyYAML](https://pyyaml.org/) — YAML configuration parsing
 - [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/) — HTML parsing for URL ingestion
 
 ---

@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 data/
 
+# User config (personal settings — use presets/ as starting point)
+config.yaml
+
 # Personal documents (NEVER commit — user-populated content)
 documents/aar/
 documents/security/

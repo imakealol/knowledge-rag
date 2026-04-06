@@ -123,6 +123,7 @@ class DocumentParser:
         content, metadata = self._parsers[suffix](filepath)
 
         if not content or not content.strip():
+            print(f"[WARN] Skipping empty file: {filepath}")
             return None
 
         # Detect category from path

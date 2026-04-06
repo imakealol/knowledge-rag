@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "knowledge-rag"
-version = "3.2.4"
+version = "3.3.0"
 description = "Local RAG System for Claude Code — Hybrid search + Cross-encoder Reranking + 12 MCP Tools. Zero external servers."
 readme = "README.md"
 license = {text = "MIT"}
@@ -40,6 +40,7 @@ dependencies = [
     "openpyxl>=3.1.0",
     "python-pptx>=1.0.0",
     "watchdog>=4.0.0",
+    "pyyaml>=6.0",
 ]
 
 [project.urls]
@@ -58,6 +59,8 @@ packages = ["mcp_server"]
 include = [
     "mcp_server/",
     "documents/examples/",
+    "config.example.yaml",
+    "presets/",
     "README.md",
     "LICENSE",
     "pyproject.toml",

@@ -1,14 +1,17 @@
-"""Configuration for Knowledge RAG System v3.0"""
+"""Configuration for Knowledge RAG System v3.1 — YAML-configurable"""
 
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List
 
-# Determine base directory:
-# 1. KNOWLEDGE_RAG_DIR env var (explicit override)
-# 2. Source checkout (../documents/ with actual files relative to this file)
-# 3. Current working directory (fallback for pip install)
+import yaml
+
+# ============================================================================
+# BASE DIRECTORY RESOLUTION
+# ============================================================================
+# Priority: 1. KNOWLEDGE_RAG_DIR env var  2. Source checkout  3. CWD
+
 _source_dir = Path(__file__).parent.parent
 
 
@@ -37,258 +40,232 @@ else:
     BASE_DIR = Path.cwd()
 
 
+# ============================================================================
+# YAML CONFIG LOADER
+# ============================================================================
+
+def _load_yaml_config() -> dict:
+    """Load config.yaml from BASE_DIR if it exists, otherwise return empty dict."""
+    config_path = BASE_DIR / "config.yaml"
+    if not config_path.exists():
+        return {}
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            print(f"[WARN] config.yaml is not a valid mapping, ignoring")
+            return {}
+        print(f"[INFO] Loaded config from {config_path}")
+        return data
+    except yaml.YAMLError as e:
+        print(f"[WARN] Failed to parse config.yaml: {e} — using defaults")
+        return {}
+
+
+_yaml = _load_yaml_config()
+
+
+def _get(section: str, key: str, default):
+    """Get a value from the YAML config with section.key path, falling back to default."""
+    s = _yaml.get(section, {})
+    if not isinstance(s, dict):
+        return default
+    val = s.get(key)
+    return val if val is not None else default
+
+
+# ============================================================================
+# DEFAULTS (used when no config.yaml or field is omitted)
+# ============================================================================
+
+_DEFAULT_CATEGORY_MAPPINGS = {
+    "security/redteam": "redteam",
+    "security/blueteam": "blueteam",
+    "security/ctf": "ctf",
+    "security": "security",
+    "aar": "aar",
+    "logscale": "logscale",
+    "development": "development",
+    "general": "general",
+}
+
+_DEFAULT_KEYWORD_ROUTES = {
+    "logscale": [
+        "logscale", "lql", "cql", "humio", "crowdstrike query",
+        "formattime", "groupby", "base64decode", "case{}", "regex",
+    ],
+    "redteam": [
+        "pentest", "exploit", "payload", "reverse shell", "privilege escalation",
+        "lateral movement", "c2", "beacon", "cobalt strike", "metasploit",
+        "gtfobins", "lolbas", "lolbin", "suid", "sudo", "byovd", "lol driver",
+        "lolad", "lolapps", "hacktricks", "privesc", "kerberoast", "dcsync",
+        "golden ticket", "pass-the-hash", "bloodhound", "mimikatz", "rubeus",
+        "certipy", "adcs", "sqli", "xss", "ssti", "ssrf", "lfi", "rfi", "xxe",
+        "deserialization", "ysoserial", "upload bypass", "reverse shell",
+        "web shell", "hash cracking", "hashcat", "waf bypass", "amsi bypass",
+        "uac bypass", "potato", "searchsploit", "exploit-db", "cve",
+    ],
+    "blueteam": [
+        "detection", "sigma", "yara", "ioc", "threat hunting",
+        "incident response", "forensics", "malware analysis",
+    ],
+    "ctf": [
+        "ctf", "flag", "hackthebox", "htb", "tryhackme",
+        "picoctf", "writeup", "challenge",
+    ],
+    "development": [
+        "python", "typescript", "javascript", "api",
+        "fastapi", "django", "react", "nodejs",
+    ],
+    "security": [
+        "anti-bot", "antibot", "js challenge", "javascript challenge",
+        "cdp detection", "runtime.enable", "puppeteer", "playwright",
+        "selenium", "nodriver", "stealth", "undetected", "ja3", "ja4",
+        "tls fingerprint", "fingerprinting", "curl_cffi", "got-scraping",
+        "impersonate", "http/2 settings", "browser fingerprint",
+        "canvas fingerprint", "webgl fingerprint", "navigator.webdriver",
+        "audio context", "hardware concurrency", "waf bypass", "aws waf",
+        "cloudflare bypass", "akamai bypass", "datadome", "perimeterx",
+        "imperva bypass", "8kb bypass", "body size limit", "json sqli",
+        "behavioral", "mouse movement", "ghost-cursor", "humanized",
+        "flaresolverr", "turnstile", "rebrowser", "botbrowser",
+    ],
+}
+
+_DEFAULT_QUERY_EXPANSIONS = {
+    "sqli": ["sql injection", "sqli"],
+    "sql injection": ["sql injection", "sqli"],
+    "xss": ["cross-site scripting", "xss"],
+    "cross-site scripting": ["cross-site scripting", "xss"],
+    "ssrf": ["server-side request forgery", "ssrf"],
+    "lfi": ["local file inclusion", "lfi"],
+    "rfi": ["remote file inclusion", "rfi"],
+    "rce": ["remote code execution", "rce"],
+    "xxe": ["xml external entity", "xxe"],
+    "ssti": ["server-side template injection", "ssti"],
+    "idor": ["insecure direct object reference", "idor"],
+    "csrf": ["cross-site request forgery", "csrf"],
+    "privesc": ["privilege escalation", "privesc"],
+    "priv esc": ["privilege escalation", "privesc"],
+    "privilege escalation": ["privilege escalation", "privesc"],
+    "deserialization": ["deserialization", "deserialisation", "insecure deserialization"],
+    "pth": ["pass-the-hash", "pth"],
+    "pass-the-hash": ["pass-the-hash", "pth"],
+    "dcsync": ["dcsync", "dc sync", "domain controller sync"],
+    "kerberoast": ["kerberoasting", "kerberoast"],
+    "kerberoasting": ["kerberoasting", "kerberoast"],
+    "asrep": ["as-rep roasting", "asrep", "asreproast"],
+    "bloodhound": ["bloodhound", "sharphound"],
+    "mimikatz": ["mimikatz", "sekurlsa", "logonpasswords"],
+    "hashcat": ["hashcat", "hash cracking", "hash crack"],
+    "john": ["john the ripper", "john", "jtr"],
+    "revshell": ["reverse shell", "revshell", "rev shell"],
+    "reverse shell": ["reverse shell", "revshell"],
+    "webshell": ["web shell", "webshell"],
+    "web shell": ["web shell", "webshell"],
+    "waf": ["web application firewall", "waf"],
+    "amsi": ["antimalware scan interface", "amsi", "amsi bypass"],
+    "uac": ["user account control", "uac", "uac bypass"],
+    "potato": ["potato", "juicypotato", "sweetpotato", "godpotato", "efspotato", "printspoofer"],
+    "ntlm": ["ntlm", "net-ntlmv2", "ntlmv2"],
+    "smb": ["smb", "server message block", "samba"],
+    "ldap": ["ldap", "lightweight directory access protocol"],
+    "ad": ["active directory", "ad"],
+    "active directory": ["active directory", "ad"],
+    "defender": ["windows defender", "defender", "wdfilter"],
+    "responder": ["responder", "llmnr", "nbt-ns", "netbios"],
+    "suid": ["suid", "setuid", "set-uid"],
+    "cron": ["cron", "crontab", "cronjob", "scheduled task"],
+    "lolbin": ["lolbin", "lolbas", "living off the land"],
+    "c2": ["c2", "command and control", "command-and-control", "beacon"],
+    "sliver": ["sliver", "sliver c2"],
+    "cobalt": ["cobalt strike", "cobalt", "cs beacon"],
+    "phishing": ["phishing", "spearphishing", "social engineering"],
+    "forensics": ["forensics", "forensic", "dfir"],
+    "volatility": ["volatility", "memory forensics", "memory analysis"],
+    "steganography": ["steganography", "stego", "steghide"],
+    "stego": ["steganography", "stego", "steghide"],
+    "rbcd": ["resource-based constrained delegation", "rbcd"],
+    "dpapi": ["dpapi", "data protection api", "credential manager"],
+    "printnightmare": ["printnightmare", "cve-2021-34527", "spoolsv", "printspooler"],
+    "cve-2021-34527": ["printnightmare", "cve-2021-34527", "spoolsv"],
+    "eternalblue": ["eternalblue", "ms17-010", "smbv1"],
+    "ms17-010": ["eternalblue", "ms17-010", "smbv1"],
+    "pwnkit": ["pwnkit", "cve-2021-4034", "pkexec"],
+    "cve-2021-4034": ["pwnkit", "cve-2021-4034", "pkexec"],
+    "log4shell": ["log4shell", "cve-2021-44228", "log4j"],
+    "cve-2021-44228": ["log4shell", "cve-2021-44228", "log4j"],
+    "zerologon": ["zerologon", "cve-2020-1472", "netlogon"],
+    "cve-2020-1472": ["zerologon", "cve-2020-1472", "netlogon"],
+    "petitpotam": ["petitpotam", "cve-2021-36942", "efs", "ntlm relay"],
+    "certifried": ["certifried", "cve-2022-26923", "adcs"],
+    "nopac": ["nopac", "samaccountname", "cve-2021-42278", "cve-2021-42287"],
+    "proxylogon": ["proxylogon", "cve-2021-26855", "exchange"],
+    "proxyshell": ["proxyshell", "cve-2021-34473", "exchange"],
+}
+
+
+# ============================================================================
+# CONFIG DATACLASS
+# ============================================================================
+
+def _resolve_path(raw, default: Path) -> Path:
+    """Resolve a path from YAML (string) or use default (Path)."""
+    if raw is None:
+        return default
+    p = Path(raw)
+    if not p.is_absolute():
+        p = BASE_DIR / p
+    return p
+
+
 @dataclass
 class Config:
-    """Central configuration for the RAG system"""
+    """Central configuration for the RAG system — loads from config.yaml when available."""
 
     # Paths
-    data_dir: Path = field(default_factory=lambda: BASE_DIR / "data")
-    chroma_dir: Path = field(default_factory=lambda: BASE_DIR / "data" / "chroma_db")
-    documents_dir: Path = field(default_factory=lambda: BASE_DIR / "documents")
+    data_dir: Path = field(default_factory=lambda: _resolve_path(
+        _get("paths", "data_dir", None), BASE_DIR / "data"
+    ))
+    chroma_dir: Path = field(default_factory=lambda: _resolve_path(
+        _get("paths", "data_dir", None), BASE_DIR / "data"
+    ) / "chroma_db")
+    documents_dir: Path = field(default_factory=lambda: _resolve_path(
+        _get("paths", "documents_dir", None), BASE_DIR / "documents"
+    ))
 
     # Chunking
-    chunk_size: int = 1000
-    chunk_overlap: int = 200
+    chunk_size: int = field(default_factory=lambda: _get("documents", "chunking", {}).get("chunk_size", 1000) if isinstance(_get("documents", "chunking", {}), dict) else 1000)
+    chunk_overlap: int = field(default_factory=lambda: _get("documents", "chunking", {}).get("chunk_overlap", 200) if isinstance(_get("documents", "chunking", {}), dict) else 200)
 
-    # Embeddings (FastEmbed — ONNX in-process, no external server)
-    embedding_model: str = "BAAI/bge-small-en-v1.5"
-    embedding_dim: int = 384
+    # Embeddings
+    embedding_model: str = field(default_factory=lambda: _get("models", "embedding", {}).get("model", "BAAI/bge-small-en-v1.5") if isinstance(_get("models", "embedding", {}), dict) else "BAAI/bge-small-en-v1.5")
+    embedding_dim: int = field(default_factory=lambda: _get("models", "embedding", {}).get("dimensions", 384) if isinstance(_get("models", "embedding", {}), dict) else 384)
 
-    # Cross-encoder reranker
-    reranker_model: str = "Xenova/ms-marco-MiniLM-L-6-v2"
-    reranker_enabled: bool = True
-    reranker_top_k_multiplier: int = 3
+    # Reranker
+    reranker_model: str = field(default_factory=lambda: _get("models", "reranker", {}).get("model", "Xenova/ms-marco-MiniLM-L-6-v2") if isinstance(_get("models", "reranker", {}), dict) else "Xenova/ms-marco-MiniLM-L-6-v2")
+    reranker_enabled: bool = field(default_factory=lambda: _get("models", "reranker", {}).get("enabled", True) if isinstance(_get("models", "reranker", {}), dict) else True)
+    reranker_top_k_multiplier: int = field(default_factory=lambda: _get("models", "reranker", {}).get("top_k_multiplier", 3) if isinstance(_get("models", "reranker", {}), dict) else 3)
 
     # ChromaDB
-    collection_name: str = "knowledge_base"
+    collection_name: str = field(default_factory=lambda: _get("search", "collection_name", "knowledge_base"))
 
     # Supported formats
-    supported_formats: List[str] = field(
-        default_factory=lambda: [".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"]
-    )
+    supported_formats: List[str] = field(default_factory=lambda: _get("documents", "supported_formats", [".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"]))
 
-    # Category mappings based on path
-    category_mappings: Dict[str, str] = field(
-        default_factory=lambda: {
-            "security/redteam": "redteam",
-            "security/blueteam": "blueteam",
-            "security/ctf": "ctf",
-            "security": "security",
-            "aar": "aar",
-            "logscale": "logscale",
-            "development": "development",
-            "general": "general",
-        }
-    )
+    # Category mappings
+    category_mappings: Dict[str, str] = field(default_factory=lambda: _yaml.get("category_mappings", _DEFAULT_CATEGORY_MAPPINGS))
 
-    # Keyword routing rules (deterministic routing before semantic search)
-    keyword_routes: Dict[str, List[str]] = field(
-        default_factory=lambda: {
-            "logscale": [
-                "logscale",
-                "lql",
-                "cql",
-                "humio",
-                "crowdstrike query",
-                "formattime",
-                "groupby",
-                "base64decode",
-                "case{}",
-                "regex",
-            ],
-            "redteam": [
-                "pentest",
-                "exploit",
-                "payload",
-                "reverse shell",
-                "privilege escalation",
-                "lateral movement",
-                "c2",
-                "beacon",
-                "cobalt strike",
-                "metasploit",
-                "gtfobins",
-                "lolbas",
-                "lolbin",
-                "suid",
-                "sudo",
-                "byovd",
-                "lol driver",
-                "lolad",
-                "lolapps",
-                "hacktricks",
-                "privesc",
-                "kerberoast",
-                "dcsync",
-                "golden ticket",
-                "pass-the-hash",
-                "bloodhound",
-                "mimikatz",
-                "rubeus",
-                "certipy",
-                "adcs",
-                "sqli",
-                "xss",
-                "ssti",
-                "ssrf",
-                "lfi",
-                "rfi",
-                "xxe",
-                "deserialization",
-                "ysoserial",
-                "upload bypass",
-                "reverse shell",
-                "web shell",
-                "hash cracking",
-                "hashcat",
-                "waf bypass",
-                "amsi bypass",
-                "uac bypass",
-                "potato",
-                "searchsploit",
-                "exploit-db",
-                "cve",
-            ],
-            "blueteam": [
-                "detection",
-                "sigma",
-                "yara",
-                "ioc",
-                "threat hunting",
-                "incident response",
-                "forensics",
-                "malware analysis",
-            ],
-            "ctf": ["ctf", "flag", "hackthebox", "htb", "tryhackme", "picoctf", "writeup", "challenge"],
-            "development": ["python", "typescript", "javascript", "api", "fastapi", "django", "react", "nodejs"],
-            "security": [
-                "anti-bot",
-                "antibot",
-                "js challenge",
-                "javascript challenge",
-                "cdp detection",
-                "runtime.enable",
-                "puppeteer",
-                "playwright",
-                "selenium",
-                "nodriver",
-                "stealth",
-                "undetected",
-                "ja3",
-                "ja4",
-                "tls fingerprint",
-                "fingerprinting",
-                "curl_cffi",
-                "got-scraping",
-                "impersonate",
-                "http/2 settings",
-                "browser fingerprint",
-                "canvas fingerprint",
-                "webgl fingerprint",
-                "navigator.webdriver",
-                "audio context",
-                "hardware concurrency",
-                "waf bypass",
-                "aws waf",
-                "cloudflare bypass",
-                "akamai bypass",
-                "datadome",
-                "perimeterx",
-                "imperva bypass",
-                "8kb bypass",
-                "body size limit",
-                "json sqli",
-                "behavioral",
-                "mouse movement",
-                "ghost-cursor",
-                "humanized",
-                "flaresolverr",
-                "turnstile",
-                "rebrowser",
-                "botbrowser",
-            ],
-        }
-    )
+    # Keyword routes
+    keyword_routes: Dict[str, List[str]] = field(default_factory=lambda: _yaml.get("keyword_routes", _DEFAULT_KEYWORD_ROUTES))
 
-    # Query expansion for BM25 (security term synonyms)
-    query_expansions: Dict[str, List[str]] = field(
-        default_factory=lambda: {
-            "sqli": ["sql injection", "sqli"],
-            "sql injection": ["sql injection", "sqli"],
-            "xss": ["cross-site scripting", "xss"],
-            "cross-site scripting": ["cross-site scripting", "xss"],
-            "ssrf": ["server-side request forgery", "ssrf"],
-            "lfi": ["local file inclusion", "lfi"],
-            "rfi": ["remote file inclusion", "rfi"],
-            "rce": ["remote code execution", "rce"],
-            "xxe": ["xml external entity", "xxe"],
-            "ssti": ["server-side template injection", "ssti"],
-            "idor": ["insecure direct object reference", "idor"],
-            "csrf": ["cross-site request forgery", "csrf"],
-            "privesc": ["privilege escalation", "privesc"],
-            "priv esc": ["privilege escalation", "privesc"],
-            "privilege escalation": ["privilege escalation", "privesc"],
-            "deserialization": ["deserialization", "deserialisation", "insecure deserialization"],
-            "pth": ["pass-the-hash", "pth"],
-            "pass-the-hash": ["pass-the-hash", "pth"],
-            "dcsync": ["dcsync", "dc sync", "domain controller sync"],
-            "kerberoast": ["kerberoasting", "kerberoast"],
-            "kerberoasting": ["kerberoasting", "kerberoast"],
-            "asrep": ["as-rep roasting", "asrep", "asreproast"],
-            "bloodhound": ["bloodhound", "sharphound"],
-            "mimikatz": ["mimikatz", "sekurlsa", "logonpasswords"],
-            "hashcat": ["hashcat", "hash cracking", "hash crack"],
-            "john": ["john the ripper", "john", "jtr"],
-            "revshell": ["reverse shell", "revshell", "rev shell"],
-            "reverse shell": ["reverse shell", "revshell"],
-            "webshell": ["web shell", "webshell"],
-            "web shell": ["web shell", "webshell"],
-            "waf": ["web application firewall", "waf"],
-            "amsi": ["antimalware scan interface", "amsi", "amsi bypass"],
-            "uac": ["user account control", "uac", "uac bypass"],
-            "potato": ["potato", "juicypotato", "sweetpotato", "godpotato", "efspotato", "printspoofer"],
-            "ntlm": ["ntlm", "net-ntlmv2", "ntlmv2"],
-            "smb": ["smb", "server message block", "samba"],
-            "ldap": ["ldap", "lightweight directory access protocol"],
-            "ad": ["active directory", "ad"],
-            "active directory": ["active directory", "ad"],
-            "defender": ["windows defender", "defender", "wdfilter"],
-            "responder": ["responder", "llmnr", "nbt-ns", "netbios"],
-            "suid": ["suid", "setuid", "set-uid"],
-            "cron": ["cron", "crontab", "cronjob", "scheduled task"],
-            "lolbin": ["lolbin", "lolbas", "living off the land"],
-            "c2": ["c2", "command and control", "command-and-control", "beacon"],
-            "sliver": ["sliver", "sliver c2"],
-            "cobalt": ["cobalt strike", "cobalt", "cs beacon"],
-            "phishing": ["phishing", "spearphishing", "social engineering"],
-            "forensics": ["forensics", "forensic", "dfir"],
-            "volatility": ["volatility", "memory forensics", "memory analysis"],
-            "steganography": ["steganography", "stego", "steghide"],
-            "stego": ["steganography", "stego", "steghide"],
-            "rbcd": ["resource-based constrained delegation", "rbcd"],
-            "dpapi": ["dpapi", "data protection api", "credential manager"],
-            # CVE aliases
-            "printnightmare": ["printnightmare", "cve-2021-34527", "spoolsv", "printspooler"],
-            "cve-2021-34527": ["printnightmare", "cve-2021-34527", "spoolsv"],
-            "eternalblue": ["eternalblue", "ms17-010", "smbv1"],
-            "ms17-010": ["eternalblue", "ms17-010", "smbv1"],
-            "pwnkit": ["pwnkit", "cve-2021-4034", "pkexec"],
-            "cve-2021-4034": ["pwnkit", "cve-2021-4034", "pkexec"],
-            "log4shell": ["log4shell", "cve-2021-44228", "log4j"],
-            "cve-2021-44228": ["log4shell", "cve-2021-44228", "log4j"],
-            "zerologon": ["zerologon", "cve-2020-1472", "netlogon"],
-            "cve-2020-1472": ["zerologon", "cve-2020-1472", "netlogon"],
-            "petitpotam": ["petitpotam", "cve-2021-36942", "efs", "ntlm relay"],
-            "certifried": ["certifried", "cve-2022-26923", "adcs"],
-            "nopac": ["nopac", "samaccountname", "cve-2021-42278", "cve-2021-42287"],
-            "proxylogon": ["proxylogon", "cve-2021-26855", "exchange"],
-            "proxyshell": ["proxyshell", "cve-2021-34473", "exchange"],
-        }
-    )
+    # Query expansions
+    query_expansions: Dict[str, List[str]] = field(default_factory=lambda: _yaml.get("query_expansions", _DEFAULT_QUERY_EXPANSIONS))
 
     # Search settings
-    default_results: int = 5
-    max_results: int = 20
+    default_results: int = field(default_factory=lambda: _get("search", "default_results", 5))
+    max_results: int = field(default_factory=lambda: _get("search", "max_results", 20))
 
     def __post_init__(self):
         """Ensure directories exist"""
