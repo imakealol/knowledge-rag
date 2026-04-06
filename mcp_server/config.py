@@ -1,4 +1,4 @@
-"""Configuration for Knowledge RAG System v3.1 — YAML-configurable"""
+"""Configuration for Knowledge RAG System v3.3.2 — YAML-configurable"""
 
 import os
 from dataclasses import dataclass, field
@@ -73,7 +73,19 @@ def _get(section: str, key: str, default):
     if not isinstance(s, dict):
         return default
     val = s.get(key)
-    return val if val is not None else default
+    if val is None:
+        return default
+    # Skip type check when default is None (caller handles validation)
+    if default is None:
+        return val
+    # YAML parses "yes"/"no" as bool, but explicit string "yes" stays str
+    if not isinstance(val, type(default)):
+        print(
+            f"[WARN] config.yaml: {section}.{key} has wrong type "
+            f"(expected {type(default).__name__}, got {type(val).__name__}), using default"
+        )
+        return default
+    return val
 
 
 def _get_top(key: str, default):
@@ -81,7 +93,8 @@ def _get_top(key: str, default):
     val = _yaml.get(key)
     if val is None:
         return default
-    if not isinstance(val, type(default)):
+    if not isinstance(val, dict):
+        print(f"[WARN] config.yaml: {key} has wrong type (expected dict, got {type(val).__name__}), using default")
         return default
     return val
 
@@ -155,7 +168,6 @@ _DEFAULT_KEYWORD_ROUTES = {
         "deserialization",
         "ysoserial",
         "upload bypass",
-        "reverse shell",
         "web shell",
         "hash cracking",
         "hashcat",
@@ -431,7 +443,41 @@ class Config:
     max_results: int = field(default_factory=lambda: _get("search", "max_results", 20))
 
     def __post_init__(self):
-        """Ensure directories exist"""
+        """Validate config values and ensure directories exist."""
+        # Bounds validation
+        if not isinstance(self.chunk_size, int) or self.chunk_size < 100:
+            print(f"[WARN] chunk_size={self.chunk_size} invalid, using 1000")
+            self.chunk_size = 1000
+        if not isinstance(self.chunk_overlap, int) or self.chunk_overlap < 0:
+            print(f"[WARN] chunk_overlap={self.chunk_overlap} invalid, using 200")
+            self.chunk_overlap = 200
+        if self.chunk_overlap >= self.chunk_size:
+            print(
+                f"[WARN] chunk_overlap ({self.chunk_overlap}) >= chunk_size ({self.chunk_size}), using {self.chunk_size // 5}"
+            )
+            self.chunk_overlap = self.chunk_size // 5
+        if not isinstance(self.default_results, int) or self.default_results < 1:
+            self.default_results = 5
+        if not isinstance(self.max_results, int) or self.max_results < 1:
+            self.max_results = 20
+        if not isinstance(self.embedding_dim, int) or self.embedding_dim < 1:
+            self.embedding_dim = 384
+        if not isinstance(self.reranker_enabled, bool):
+            print(f"[WARN] reranker_enabled={self.reranker_enabled!r} invalid, using True")
+            self.reranker_enabled = True
+        if not isinstance(self.reranker_top_k_multiplier, int) or self.reranker_top_k_multiplier < 1:
+            self.reranker_top_k_multiplier = 3
+        if not isinstance(self.supported_formats, list) or not self.supported_formats:
+            print("[WARN] supported_formats is empty or invalid, using defaults")
+            self.supported_formats = [".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"]
+
+        # Validate keyword_routes values are lists (not strings)
+        for cat, keywords in list(self.keyword_routes.items()):
+            if not isinstance(keywords, list):
+                print(f"[WARN] keyword_routes.{cat} is not a list, removing")
+                del self.keyword_routes[cat]
+
+        # Ensure directories exist
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.chroma_dir.mkdir(parents=True, exist_ok=True)
         self.documents_dir.mkdir(parents=True, exist_ok=True)

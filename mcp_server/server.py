@@ -19,8 +19,8 @@ Features:
     - CRUD operations via MCP tools (add, update, remove docs)
 
 Autor:   Lyon (Ailton Rocha)
-Versao:  3.0.0
-Data:    2026-03-19
+Versao:  3.3.2
+Data:    2026-04-06
 """
 
 import hashlib
@@ -1836,32 +1836,37 @@ def _handle_init():
 
     cwd = Path.cwd()
 
-    # Copy config.example.yaml
-    src = data_dir / "config.example.yaml"
-    if src.exists():
-        dst = cwd / "config.example.yaml"
-        shutil.copy2(src, dst)
-        print(f"[OK] {dst}")
+    try:
+        # Copy config.example.yaml
+        src = data_dir / "config.example.yaml"
+        if src.exists():
+            dst = cwd / "config.example.yaml"
+            shutil.copy2(src, dst)
+            print(f"[OK] {dst}")
 
-    # Copy presets
-    presets_dir = cwd / "presets"
-    presets_dir.mkdir(exist_ok=True)
-    for f in data_dir.glob("*.yaml"):
-        if f.name == "config.example.yaml":
-            continue
-        dst = presets_dir / f.name
-        shutil.copy2(f, dst)
-        print(f"[OK] {dst}")
+        # Copy presets
+        presets_dir = cwd / "presets"
+        presets_dir.mkdir(exist_ok=True)
+        for f in data_dir.glob("*.yaml"):
+            if f.name == "config.example.yaml":
+                continue
+            dst = presets_dir / f.name
+            shutil.copy2(f, dst)
+            print(f"[OK] {dst}")
 
-    # Create documents dir
-    docs_dir = cwd / "documents"
-    docs_dir.mkdir(exist_ok=True)
-    print(f"[OK] {docs_dir}/")
+        # Create documents dir
+        docs_dir = cwd / "documents"
+        docs_dir.mkdir(exist_ok=True)
+        print(f"[OK] {docs_dir}/")
 
-    print("\nDone. Quick start:")
-    print("  cp presets/general.yaml config.yaml     # or cybersecurity, developer, research")
-    print("  # Add your documents to documents/")
-    print("  # Restart Claude Code")
+        print("\nDone. Quick start:")
+        print("  cp presets/general.yaml config.yaml     # or cybersecurity, developer, research")
+        print("  # Add your documents to documents/")
+        print("  # Restart Claude Code")
+    except PermissionError:
+        print("[ERROR] Permission denied. Run from a writable directory.")
+    except OSError as e:
+        print(f"[ERROR] Failed to write files: {e}")
 
 
 def main():

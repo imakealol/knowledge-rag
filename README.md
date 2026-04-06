@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.3.1-blue.svg)
+![Version](https://img.shields.io/badge/version-3.3.2-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -1127,7 +1127,7 @@ pip install rank-bm25
 
 ### "ModuleNotFoundError: No module named 'mcp_server'"
 
-This occurs when Claude Code doesn't set the working directory correctly. Use the `cmd /c "cd /d ... && python"` wrapper in your MCP config (see [Installation](#configure-mcp-for-claude-code)).
+This occurs when Claude Code doesn't set the working directory correctly. Use the `cmd /c "cd /d ... && python"` wrapper in your MCP config (see [Installation](#installation)).
 
 ### Dimension mismatch after upgrade
 
@@ -1158,6 +1158,15 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.3.2 (2026-04-06)
+
+- **FIX**: Full type validation on all YAML config values — wrong types warn and fall back to defaults
+- **FIX**: Bounds validation for chunk_size, chunk_overlap, default_results, max_results, embedding_dim
+- **FIX**: `keyword_routes` with string values instead of lists detected and removed with warning
+- **FIX**: `reranker_enabled: "yes"` (string) corrected to boolean with warning
+- **FIX**: Synced version strings across all source files
+- **FIX**: Broken README anchor, duplicate keyword, error handling in `knowledge-rag init`
 
 ### v3.3.1 (2026-04-06)
 
