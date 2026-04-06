@@ -44,6 +44,7 @@ else:
 # YAML CONFIG LOADER
 # ============================================================================
 
+
 def _load_yaml_config() -> dict:
     """Load config.yaml from BASE_DIR if it exists, otherwise return empty dict."""
     config_path = BASE_DIR / "config.yaml"
@@ -92,44 +93,145 @@ _DEFAULT_CATEGORY_MAPPINGS = {
 
 _DEFAULT_KEYWORD_ROUTES = {
     "logscale": [
-        "logscale", "lql", "cql", "humio", "crowdstrike query",
-        "formattime", "groupby", "base64decode", "case{}", "regex",
+        "logscale",
+        "lql",
+        "cql",
+        "humio",
+        "crowdstrike query",
+        "formattime",
+        "groupby",
+        "base64decode",
+        "case{}",
+        "regex",
     ],
     "redteam": [
-        "pentest", "exploit", "payload", "reverse shell", "privilege escalation",
-        "lateral movement", "c2", "beacon", "cobalt strike", "metasploit",
-        "gtfobins", "lolbas", "lolbin", "suid", "sudo", "byovd", "lol driver",
-        "lolad", "lolapps", "hacktricks", "privesc", "kerberoast", "dcsync",
-        "golden ticket", "pass-the-hash", "bloodhound", "mimikatz", "rubeus",
-        "certipy", "adcs", "sqli", "xss", "ssti", "ssrf", "lfi", "rfi", "xxe",
-        "deserialization", "ysoserial", "upload bypass", "reverse shell",
-        "web shell", "hash cracking", "hashcat", "waf bypass", "amsi bypass",
-        "uac bypass", "potato", "searchsploit", "exploit-db", "cve",
+        "pentest",
+        "exploit",
+        "payload",
+        "reverse shell",
+        "privilege escalation",
+        "lateral movement",
+        "c2",
+        "beacon",
+        "cobalt strike",
+        "metasploit",
+        "gtfobins",
+        "lolbas",
+        "lolbin",
+        "suid",
+        "sudo",
+        "byovd",
+        "lol driver",
+        "lolad",
+        "lolapps",
+        "hacktricks",
+        "privesc",
+        "kerberoast",
+        "dcsync",
+        "golden ticket",
+        "pass-the-hash",
+        "bloodhound",
+        "mimikatz",
+        "rubeus",
+        "certipy",
+        "adcs",
+        "sqli",
+        "xss",
+        "ssti",
+        "ssrf",
+        "lfi",
+        "rfi",
+        "xxe",
+        "deserialization",
+        "ysoserial",
+        "upload bypass",
+        "reverse shell",
+        "web shell",
+        "hash cracking",
+        "hashcat",
+        "waf bypass",
+        "amsi bypass",
+        "uac bypass",
+        "potato",
+        "searchsploit",
+        "exploit-db",
+        "cve",
     ],
     "blueteam": [
-        "detection", "sigma", "yara", "ioc", "threat hunting",
-        "incident response", "forensics", "malware analysis",
+        "detection",
+        "sigma",
+        "yara",
+        "ioc",
+        "threat hunting",
+        "incident response",
+        "forensics",
+        "malware analysis",
     ],
     "ctf": [
-        "ctf", "flag", "hackthebox", "htb", "tryhackme",
-        "picoctf", "writeup", "challenge",
+        "ctf",
+        "flag",
+        "hackthebox",
+        "htb",
+        "tryhackme",
+        "picoctf",
+        "writeup",
+        "challenge",
     ],
     "development": [
-        "python", "typescript", "javascript", "api",
-        "fastapi", "django", "react", "nodejs",
+        "python",
+        "typescript",
+        "javascript",
+        "api",
+        "fastapi",
+        "django",
+        "react",
+        "nodejs",
     ],
     "security": [
-        "anti-bot", "antibot", "js challenge", "javascript challenge",
-        "cdp detection", "runtime.enable", "puppeteer", "playwright",
-        "selenium", "nodriver", "stealth", "undetected", "ja3", "ja4",
-        "tls fingerprint", "fingerprinting", "curl_cffi", "got-scraping",
-        "impersonate", "http/2 settings", "browser fingerprint",
-        "canvas fingerprint", "webgl fingerprint", "navigator.webdriver",
-        "audio context", "hardware concurrency", "waf bypass", "aws waf",
-        "cloudflare bypass", "akamai bypass", "datadome", "perimeterx",
-        "imperva bypass", "8kb bypass", "body size limit", "json sqli",
-        "behavioral", "mouse movement", "ghost-cursor", "humanized",
-        "flaresolverr", "turnstile", "rebrowser", "botbrowser",
+        "anti-bot",
+        "antibot",
+        "js challenge",
+        "javascript challenge",
+        "cdp detection",
+        "runtime.enable",
+        "puppeteer",
+        "playwright",
+        "selenium",
+        "nodriver",
+        "stealth",
+        "undetected",
+        "ja3",
+        "ja4",
+        "tls fingerprint",
+        "fingerprinting",
+        "curl_cffi",
+        "got-scraping",
+        "impersonate",
+        "http/2 settings",
+        "browser fingerprint",
+        "canvas fingerprint",
+        "webgl fingerprint",
+        "navigator.webdriver",
+        "audio context",
+        "hardware concurrency",
+        "waf bypass",
+        "aws waf",
+        "cloudflare bypass",
+        "akamai bypass",
+        "datadome",
+        "perimeterx",
+        "imperva bypass",
+        "8kb bypass",
+        "body size limit",
+        "json sqli",
+        "behavioral",
+        "mouse movement",
+        "ghost-cursor",
+        "humanized",
+        "flaresolverr",
+        "turnstile",
+        "rebrowser",
+        "botbrowser",
     ],
 }
 
@@ -210,6 +312,7 @@ _DEFAULT_QUERY_EXPANSIONS = {
 # CONFIG DATACLASS
 # ============================================================================
 
+
 def _resolve_path(raw, default: Path) -> Path:
     """Resolve a path from YAML (string) or use default (Path)."""
     if raw is None:
@@ -225,43 +328,93 @@ class Config:
     """Central configuration for the RAG system — loads from config.yaml when available."""
 
     # Paths
-    data_dir: Path = field(default_factory=lambda: _resolve_path(
-        _get("paths", "data_dir", None), BASE_DIR / "data"
-    ))
-    chroma_dir: Path = field(default_factory=lambda: _resolve_path(
-        _get("paths", "data_dir", None), BASE_DIR / "data"
-    ) / "chroma_db")
-    documents_dir: Path = field(default_factory=lambda: _resolve_path(
-        _get("paths", "documents_dir", None), BASE_DIR / "documents"
-    ))
+    data_dir: Path = field(default_factory=lambda: _resolve_path(_get("paths", "data_dir", None), BASE_DIR / "data"))
+    chroma_dir: Path = field(
+        default_factory=lambda: _resolve_path(_get("paths", "data_dir", None), BASE_DIR / "data") / "chroma_db"
+    )
+    documents_dir: Path = field(
+        default_factory=lambda: _resolve_path(_get("paths", "documents_dir", None), BASE_DIR / "documents")
+    )
 
     # Chunking
-    chunk_size: int = field(default_factory=lambda: _get("documents", "chunking", {}).get("chunk_size", 1000) if isinstance(_get("documents", "chunking", {}), dict) else 1000)
-    chunk_overlap: int = field(default_factory=lambda: _get("documents", "chunking", {}).get("chunk_overlap", 200) if isinstance(_get("documents", "chunking", {}), dict) else 200)
+    chunk_size: int = field(
+        default_factory=lambda: (
+            _get("documents", "chunking", {}).get("chunk_size", 1000)
+            if isinstance(_get("documents", "chunking", {}), dict)
+            else 1000
+        )
+    )
+    chunk_overlap: int = field(
+        default_factory=lambda: (
+            _get("documents", "chunking", {}).get("chunk_overlap", 200)
+            if isinstance(_get("documents", "chunking", {}), dict)
+            else 200
+        )
+    )
 
     # Embeddings
-    embedding_model: str = field(default_factory=lambda: _get("models", "embedding", {}).get("model", "BAAI/bge-small-en-v1.5") if isinstance(_get("models", "embedding", {}), dict) else "BAAI/bge-small-en-v1.5")
-    embedding_dim: int = field(default_factory=lambda: _get("models", "embedding", {}).get("dimensions", 384) if isinstance(_get("models", "embedding", {}), dict) else 384)
+    embedding_model: str = field(
+        default_factory=lambda: (
+            _get("models", "embedding", {}).get("model", "BAAI/bge-small-en-v1.5")
+            if isinstance(_get("models", "embedding", {}), dict)
+            else "BAAI/bge-small-en-v1.5"
+        )
+    )
+    embedding_dim: int = field(
+        default_factory=lambda: (
+            _get("models", "embedding", {}).get("dimensions", 384)
+            if isinstance(_get("models", "embedding", {}), dict)
+            else 384
+        )
+    )
 
     # Reranker
-    reranker_model: str = field(default_factory=lambda: _get("models", "reranker", {}).get("model", "Xenova/ms-marco-MiniLM-L-6-v2") if isinstance(_get("models", "reranker", {}), dict) else "Xenova/ms-marco-MiniLM-L-6-v2")
-    reranker_enabled: bool = field(default_factory=lambda: _get("models", "reranker", {}).get("enabled", True) if isinstance(_get("models", "reranker", {}), dict) else True)
-    reranker_top_k_multiplier: int = field(default_factory=lambda: _get("models", "reranker", {}).get("top_k_multiplier", 3) if isinstance(_get("models", "reranker", {}), dict) else 3)
+    reranker_model: str = field(
+        default_factory=lambda: (
+            _get("models", "reranker", {}).get("model", "Xenova/ms-marco-MiniLM-L-6-v2")
+            if isinstance(_get("models", "reranker", {}), dict)
+            else "Xenova/ms-marco-MiniLM-L-6-v2"
+        )
+    )
+    reranker_enabled: bool = field(
+        default_factory=lambda: (
+            _get("models", "reranker", {}).get("enabled", True)
+            if isinstance(_get("models", "reranker", {}), dict)
+            else True
+        )
+    )
+    reranker_top_k_multiplier: int = field(
+        default_factory=lambda: (
+            _get("models", "reranker", {}).get("top_k_multiplier", 3)
+            if isinstance(_get("models", "reranker", {}), dict)
+            else 3
+        )
+    )
 
     # ChromaDB
     collection_name: str = field(default_factory=lambda: _get("search", "collection_name", "knowledge_base"))
 
     # Supported formats
-    supported_formats: List[str] = field(default_factory=lambda: _get("documents", "supported_formats", [".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"]))
+    supported_formats: List[str] = field(
+        default_factory=lambda: _get(
+            "documents", "supported_formats", [".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"]
+        )
+    )
 
     # Category mappings
-    category_mappings: Dict[str, str] = field(default_factory=lambda: _yaml.get("category_mappings", _DEFAULT_CATEGORY_MAPPINGS))
+    category_mappings: Dict[str, str] = field(
+        default_factory=lambda: _yaml.get("category_mappings", _DEFAULT_CATEGORY_MAPPINGS)
+    )
 
     # Keyword routes
-    keyword_routes: Dict[str, List[str]] = field(default_factory=lambda: _yaml.get("keyword_routes", _DEFAULT_KEYWORD_ROUTES))
+    keyword_routes: Dict[str, List[str]] = field(
+        default_factory=lambda: _yaml.get("keyword_routes", _DEFAULT_KEYWORD_ROUTES)
+    )
 
     # Query expansions
-    query_expansions: Dict[str, List[str]] = field(default_factory=lambda: _yaml.get("query_expansions", _DEFAULT_QUERY_EXPANSIONS))
+    query_expansions: Dict[str, List[str]] = field(
+        default_factory=lambda: _yaml.get("query_expansions", _DEFAULT_QUERY_EXPANSIONS)
+    )
 
     # Search settings
     default_results: int = field(default_factory=lambda: _get("search", "default_results", 5))
