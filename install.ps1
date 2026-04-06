@@ -67,12 +67,12 @@ function Write-Banner {
 
     ╔═══════════════════════════════════════════════════════════════════╗
     ║                                                                   ║
-    ║   ██╗  ██╗███╗   ██╗ ██████╗ ██╗    ██╗██╗     ███████╗██████╗   ║
-    ║   ██║ ██╔╝████╗  ██║██╔═══██╗██║    ██║██║     ██╔════╝██╔══██╗  ║
-    ║   █████╔╝ ██╔██╗ ██║██║   ██║██║ █╗ ██║██║     █████╗  ██║  ██║  ║
-    ║   ██╔═██╗ ██║╚██╗██║██║   ██║██║███╗██║██║     ██╔══╝  ██║  ██║  ║
-    ║   ██║  ██╗██║ ╚████║╚██████╔╝╚███╔███╔╝███████╗███████╗██████╔╝  ║
-    ║   ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚══╝╚══╝ ╚══════╝╚══════╝╚═════╝   ║
+    ║   ██╗  ██╗███╗   ██╗ ██████╗ ██╗    ██╗██╗     ███████╗██████╗    ║
+    ║   ██║ ██╔╝████╗  ██║██╔═══██╗██║    ██║██║     ██╔════╝██╔══██╗   ║
+    ║   █████╔╝ ██╔██╗ ██║██║   ██║██║ █╗ ██║██║     █████╗  ██║  ██║   ║
+    ║   ██╔═██╗ ██║╚██╗██║██║   ██║██║███╗██║██║     ██╔══╝  ██║  ██║   ║
+    ║   ██║  ██╗██║ ╚████║╚██████╔╝╚███╔███╔╝███████╗███████╗██████╔╝   ║
+    ║   ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚══╝╚══╝ ╚══════╝╚══════╝╚═════╝    ║
     ║                                                                   ║
     ║                    RAG SYSTEM INSTALLER v2.0                      ║
     ║         Local Semantic Search for Claude Code (FastEmbed)         ║
@@ -412,33 +412,33 @@ function Show-Summary {
     Embedding Cache:    ~/.cache/fastembed/
 
     ┌─────────────────────────────────────────────────────────────────┐
-    │ NEXT STEPS                                                       │
+    │ NEXT STEPS                                                      │
     ├─────────────────────────────────────────────────────────────────┤
-    │                                                                  │
+    │                                                                 │
     │ 1. Add documents to: $docsFullPath\
-    │    - security\     -> Security/pentest content                   │
-    │    - logscale\     -> LogScale/LQL queries                       │
-    │    - development\  -> Code/dev documentation                     │
-    │    - aar\          -> After Action Reviews                       │
-    │    - general\      -> Other documents                            │
-    │                                                                  │
-    │ 2. Restart Claude Code to load the MCP server                    │
-    │    (server auto-indexes documents on startup)                    │
-    │                                                                  │
-    │ 3. Available MCP Tools (12):                                     │
+    │    - security\     -> Security/pentest content                  │
+    │    - logscale\     -> LogScale/LQL queries                      │
+    │    - development\  -> Code/dev documentation                    │
+    │    - aar\          -> After Action Reviews                      │
+    │    - general\      -> Other documents                           │
+    │                                                                 │
+    │ 2. Restart Claude Code to load the MCP server                   │
+    │    (server auto-indexes documents on startup)                   │
+    │                                                                 │
+    │ 3. Available MCP Tools (12):                                    │
     │    - search_knowledge(query, max_results, category, hybrid_alpha)│
-    │    - get_document(filepath)                                      │
-    │    - reindex_documents(force, full_rebuild)                      │
-    │    - list_categories()                                           │
-    │    - list_documents(category)                                    │
-    │    - get_index_stats()                                           │
-    │    - add_document(content, filepath, category)                   │
-    │    - update_document(filepath, content)                          │
-    │    - remove_document(filepath, delete_file)                      │
-    │    - add_from_url(url, category, title)                          │
-    │    - search_similar(filepath, max_results)                       │
-    │    - evaluate_retrieval(test_cases)                              │
-    │                                                                  │
+    │    - get_document(filepath)                                     │
+    │    - reindex_documents(force, full_rebuild)                     │
+    │    - list_categories()                                          │
+    │    - list_documents(category)                                   │
+    │    - get_index_stats()                                          │
+    │    - add_document(content, filepath, category)                  │
+    │    - update_document(filepath, content)                         │
+    │    - remove_document(filepath, delete_file)                     │
+    │    - add_from_url(url, category, title)                         │
+    │    - search_similar(filepath, max_results)                      │
+    │    - evaluate_retrieval(test_cases)                             │
+    │                                                                 │
     └─────────────────────────────────────────────────────────────────┘
 
     No external services required. FastEmbed runs in-process.
