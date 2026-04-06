@@ -21,8 +21,6 @@ Features:
 Autor:   Lyon (Ailton Rocha)
 Versao:  3.0.0
 Data:    2026-03-19
-
-By Lyon :) Legal Ne?
 """
 
 import hashlib
