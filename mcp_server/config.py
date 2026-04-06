@@ -54,7 +54,7 @@ def _load_yaml_config() -> dict:
         with open(config_path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         if not isinstance(data, dict):
-            print(f"[WARN] config.yaml is not a valid mapping, ignoring")
+            print("[WARN] config.yaml is not a valid mapping, ignoring")
             return {}
         print(f"[INFO] Loaded config from {config_path}")
         return data
