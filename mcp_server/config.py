@@ -1,6 +1,7 @@
-"""Configuration for Knowledge RAG System v3.4.0 — YAML-configurable"""
+"""Configuration for Knowledge RAG System v3.4.1 — YAML-configurable"""
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List
@@ -10,7 +11,7 @@ import yaml
 # ============================================================================
 # BASE DIRECTORY RESOLUTION
 # ============================================================================
-# Priority: 1. KNOWLEDGE_RAG_DIR env var  2. Source checkout  3. CWD
+# Priority: 1. KNOWLEDGE_RAG_DIR env var  2. Source checkout  3. Venv parent  4. CWD
 
 _source_dir = Path(__file__).parent.parent
 
@@ -30,14 +31,34 @@ def _has_documents(path: Path) -> bool:
     return False
 
 
+def _venv_project_dir():
+    """Detect project root from venv location (pip install from PyPI)."""
+    exe = Path(sys.executable).resolve()
+    for parent in exe.parents:
+        if parent.name in ("venv", ".venv", "env", ".env"):
+            return parent.parent
+    return None
+
+
+def _is_project_root(path):
+    """Check if path looks like a knowledge-rag project (has config or documents)."""
+    if path is None:
+        return False
+    return (path / "config.yaml").exists() or (path / "config.example.yaml").exists() or _has_documents(path)
+
+
+_venv_dir = _venv_project_dir()
+
 if os.environ.get("KNOWLEDGE_RAG_DIR"):
     BASE_DIR = Path(os.environ["KNOWLEDGE_RAG_DIR"])
-elif _has_documents(_source_dir):
+elif _is_project_root(_source_dir):
     BASE_DIR = _source_dir
-elif _has_documents(Path.cwd()):
+elif _is_project_root(_venv_dir):
+    BASE_DIR = _venv_dir
+elif _is_project_root(Path.cwd()):
     BASE_DIR = Path.cwd()
 else:
-    BASE_DIR = Path.cwd()
+    BASE_DIR = _venv_dir if _venv_dir is not None else Path.cwd()
 
 
 # ============================================================================

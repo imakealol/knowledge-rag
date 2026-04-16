@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)
+![Version](https://img.shields.io/badge/version-3.4.1-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -25,7 +25,7 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 **12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
 
-[What's New](#whats-new-in-v340) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v341) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
@@ -71,6 +71,12 @@ The first startup after upgrading will take longer than usual because:
 After the initial rebuild, startup and queries are faster than v2.x because there is no Ollama server dependency.
 
 ---
+
+## What's New in v3.4.1
+
+**Reliable pip install** — The server now auto-detects the project directory from the venv location. No more `cwd`, `cd /d`, or `KNOWLEDGE_RAG_DIR` workarounds needed. Just `pip install knowledge-rag`, `knowledge-rag init`, configure MCP, and it works.
+
+**Linux/macOS installer** — New `install.sh` script. Same plug-and-play experience as `install.ps1` on Windows.
 
 ## What's New in v3.4.0
 
@@ -409,33 +415,36 @@ flowchart LR
 **Step 1: Install**
 
 ```bash
-# Option A: pip install (recommended)
+# Option A: One-line installer (recommended)
+# Linux/macOS:
+curl -fsSL https://raw.githubusercontent.com/lyonzin/knowledge-rag/master/install.sh | bash
+# Windows (PowerShell):
+irm https://raw.githubusercontent.com/lyonzin/knowledge-rag/master/install.ps1 | iex
+
+# Option B: pip install (manual)
+mkdir ~/knowledge-rag && cd ~/knowledge-rag
+python3 -m venv venv && source venv/bin/activate
 pip install knowledge-rag
 knowledge-rag init              # Exports config template, presets, creates documents/
 
-# Option B: Clone from source
+# Option C: Clone from source
 git clone https://github.com/lyonzin/knowledge-rag.git ~/knowledge-rag
 cd ~/knowledge-rag
-python3 -m venv venv
-source venv/bin/activate        # Linux/macOS
-# .\venv\Scripts\activate       # Windows
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> **Windows users**: Use `python` instead of `python3`.
+> **Windows users**: Use `python` instead of `python3`, `venv\Scripts\activate` instead of `source venv/bin/activate`.
 
 **Step 2: Configure Claude Code**
 
-From inside the cloned folder, run:
-
 ```bash
-cd ~/knowledge-rag
 claude mcp add knowledge-rag -s user -- ~/knowledge-rag/venv/bin/python -m mcp_server.server
 ```
 
-> **Windows**: `claude mcp add knowledge-rag -s user -- cmd /c "cd /d %USERPROFILE%\knowledge-rag && venv\Scripts\python -m mcp_server.server"`
+> **Windows**: `claude mcp add knowledge-rag -s user -- %USERPROFILE%\knowledge-rag\venv\Scripts\python.exe -m mcp_server.server`
 
-That's it. Claude Code now knows about your RAG server.
+> **v3.4.1+**: The server auto-detects the project directory from the venv location. No `cd` wrapper or `cwd` field needed.
 
 <details>
 <summary>Alternative: manual JSON config</summary>
@@ -447,10 +456,8 @@ Add to `~/.claude.json`:
 {
   "mcpServers": {
     "knowledge-rag": {
-      "type": "stdio",
-      "command": "cmd",
-      "args": ["/c", "cd /d %USERPROFILE%\\knowledge-rag && python -m mcp_server.server"],
-      "env": {}
+      "command": "C:\\Users\\YOUR_USER\\knowledge-rag\\venv\\Scripts\\python.exe",
+      "args": ["-m", "mcp_server.server"]
     }
   }
 }
@@ -461,11 +468,8 @@ Add to `~/.claude.json`:
 {
   "mcpServers": {
     "knowledge-rag": {
-      "type": "stdio",
       "command": "/home/YOUR_USER/knowledge-rag/venv/bin/python",
-      "args": ["-m", "mcp_server.server"],
-      "cwd": "/home/YOUR_USER/knowledge-rag",
-      "env": {}
+      "args": ["-m", "mcp_server.server"]
     }
   }
 }
@@ -1195,6 +1199,12 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.4.1 (2026-04-16)
+
+- **FIX**: `pip install knowledge-rag` now auto-detects project directory from venv location — no `cwd`, `cd /d` wrapper, or `KNOWLEDGE_RAG_DIR` needed
+- **NEW**: `install.sh` — Linux/macOS installer with pip and from-source modes, auto-configures MCP in Claude Code
+- **IMPROVED**: BASE_DIR resolution chain: env var → source dir → venv parent → CWD → fallback
 
 ### v3.4.0 (2026-04-16)
 
