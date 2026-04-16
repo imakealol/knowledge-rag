@@ -17,6 +17,7 @@
 paths:
   documents_dir: "./documents"
   data_dir: "./data"
+  models_cache_dir: "./models_cache"
 
 
 # ============================================================================
@@ -32,6 +33,9 @@ documents:
     - .xlsx      # Data tables, survey results
     - .pptx      # Presentations, lecture slides
     - .csv       # Experiment data, datasets
+    - .ipynb     # Jupyter Notebooks (analysis, experiments)
+
+  exclude_patterns: []
 
   chunking:
     chunk_size: 1500      # Larger chunks — academic text needs more context

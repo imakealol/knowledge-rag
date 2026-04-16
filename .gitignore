@@ -28,6 +28,7 @@ documents/**/*.csv
 
 # FastEmbed model cache
 .cache/
+models_cache/
 *.onnx
 
 # Local scripts (not part of distribution)

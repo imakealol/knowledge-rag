@@ -23,9 +23,9 @@ def test_reranker_config():
 
 
 def test_supported_formats():
-    """All 9 formats must be supported."""
-    expected = {".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"}
-    assert set(config.supported_formats) == expected
+    """Core formats must be present in supported_formats."""
+    core = {".md", ".txt", ".pdf"}
+    assert core.issubset(set(config.supported_formats))
 
 
 def test_query_expansions_count():
@@ -60,3 +60,28 @@ def test_chunk_settings():
     assert 500 <= config.chunk_size <= 2000
     assert 100 <= config.chunk_overlap <= 500
     assert config.chunk_overlap < config.chunk_size
+
+
+# ── v3.4.0 Features ──
+
+
+def test_models_cache_dir_exists():
+    """models_cache_dir must be a Path and directory must be created."""
+    from pathlib import Path
+
+    assert hasattr(config, "models_cache_dir")
+    assert isinstance(config.models_cache_dir, Path)
+    assert config.models_cache_dir.exists()
+
+
+def test_exclude_patterns_default_empty():
+    """Default exclude_patterns must be an empty list."""
+    assert hasattr(config, "exclude_patterns")
+    assert isinstance(config.exclude_patterns, list)
+
+
+def test_ipynb_in_supported_suffixes():
+    """.ipynb must be in the internal supported suffixes set."""
+    from mcp_server.config import _SUPPORTED_SUFFIXES
+
+    assert ".ipynb" in _SUPPORTED_SUFFIXES

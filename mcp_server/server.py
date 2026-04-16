@@ -19,8 +19,8 @@ Features:
     - CRUD operations via MCP tools (add, update, remove docs)
 
 Autor:   Lyon (Ailton Rocha)
-Versao:  3.3.2
-Data:    2026-04-06
+Versao:  3.4.0
+Data:    2026-04-16
 """
 
 import hashlib
@@ -141,7 +141,7 @@ class FastEmbedEmbeddings:
         self.model_name = model or config.embedding_model
         self._dim = config.embedding_dim
         print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D)...")
-        self._model = TextEmbedding(model_name=self.model_name)
+        self._model = TextEmbedding(model_name=self.model_name, cache_dir=str(config.models_cache_dir))
         print("[INFO] Embedding model loaded successfully")
 
     def __call__(self, input: List[str]) -> List[List[float]]:
@@ -1899,12 +1899,21 @@ def main():
         print(f"[INFO] Indexed {stats['indexed']} documents with {stats['chunks_added']} chunks")
 
     # Start file watcher for auto-reindex on document changes
-    watcher = DocumentWatcher(get_orchestrator, debounce_seconds=5.0)
-    observer = Observer()
-    observer.schedule(watcher, str(config.documents_dir), recursive=True)
-    observer.daemon = True
-    observer.start()
-    print(f"[WATCHER] Monitoring {config.documents_dir} for changes")
+    try:
+        watcher = DocumentWatcher(get_orchestrator, debounce_seconds=5.0)
+        observer = Observer()
+        observer.schedule(watcher, str(config.documents_dir), recursive=True)
+        observer.daemon = True
+        observer.start()
+        print(f"[WATCHER] Monitoring {config.documents_dir} for changes")
+    except Exception as e:
+        print(f"[WARN] Failed to start file watcher: {e}")
+        print("[WARN] Auto-reindexing disabled. Use reindex_documents tool manually.")
+
+    # Redirect stdout to stderr to protect MCP stdio JSON-RPC stream.
+    # Libraries (fastembed, chromadb, watchdog) may print() at runtime,
+    # which would corrupt the protocol. This ONLY affects the server process.
+    sys.stdout = sys.stderr
 
     mcp.run()
 

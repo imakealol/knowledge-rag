@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.3.2-blue.svg)
+![Version](https://img.shields.io/badge/version-3.4.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -25,7 +25,7 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 **12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
 
-[What's New](#whats-new-in-v330) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v340) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
@@ -69,6 +69,40 @@ The first startup after upgrading will take longer than usual because:
 3. The cross-encoder reranker model is downloaded on first query (~25MB)
 
 After the initial rebuild, startup and queries are faster than v2.x because there is no Ollama server dependency.
+
+---
+
+## What's New in v3.4.0
+
+### Persistent Model Cache
+Embedding models (~250MB) are now stored in `models_cache/` instead of `/tmp`. No more re-downloading after system reboots on Linux. Configurable via `paths.models_cache_dir` in config.yaml.
+
+### Exclude Patterns
+Skip files and directories during indexing with glob patterns. Configure under `documents.exclude_patterns` in config.yaml:
+```yaml
+documents:
+  exclude_patterns:
+    - "node_modules"
+    - ".venv"
+    - "__pycache__"
+    - ".git"
+    - "*.tmp"
+```
+Patterns match against both full relative paths and individual path components — `"node_modules"` excludes it at any depth.
+
+### Jupyter Notebook Support (.ipynb)
+Native parser extracts only markdown and code cell sources — no outputs, no execution counts, no base64-encoded images. Clean content for high-quality retrieval. Added to default supported formats.
+
+### MCP Protocol Stability
+`stdout` is redirected to `stderr` before the MCP server starts. Prevents random library `print()` calls from corrupting the JSON-RPC stream — fixes "Failed to connect" errors in VS Code and IDE integrations.
+
+### File Watcher Resilience (Linux)
+Server no longer crashes when system inotify limits are reached. Falls back gracefully to manual indexing with a clear warning message.
+
+### MetaTrader Support (.mq4, .mqh)
+MQL4/MQL5 source files can now be indexed as code. Not enabled by default — add `.mq4` and `.mqh` to your `supported_formats` list to activate.
+
+*Community credit: Features inspired by ideas from [@Hohlas](https://github.com/Hohlas) in [PR #18](https://github.com/lyonzin/knowledge-rag/pull/18).*
 
 ---
 
@@ -930,6 +964,7 @@ Pre-built configurations for common use cases. Each preset is a complete `config
 |-------|---------|-------------|
 | `paths.documents_dir` | `./documents` | Root folder scanned recursively for documents |
 | `paths.data_dir` | `./data` | Internal storage for ChromaDB and index metadata |
+| `paths.models_cache_dir` | `./models_cache` | Persistent cache for embedding models (~250MB). Prevents re-download after reboots |
 
 Relative paths resolve from the project root. Absolute paths work too. The `KNOWLEDGE_RAG_DIR` environment variable overrides the project root.
 
@@ -937,7 +972,8 @@ Relative paths resolve from the project root. Absolute paths work too. The `KNOW
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `documents.supported_formats` | .md .txt .pdf .py .json .docx .xlsx .pptx .csv | File extensions to index |
+| `documents.supported_formats` | .md .txt .pdf .py .json .docx .xlsx .pptx .csv .ipynb | File extensions to index |
+| `documents.exclude_patterns` | `[]` (empty) | Glob patterns for files/dirs to skip during indexing |
 | `documents.chunking.chunk_size` | 1000 | Max characters per chunk |
 | `documents.chunking.chunk_overlap` | 200 | Characters shared between consecutive chunks |
 
@@ -1054,7 +1090,8 @@ knowledge-rag/
 ├── data/
 │   ├── chroma_db/           # ChromaDB vector database
 │   └── index_metadata.json  # Incremental indexing state
-├── tests/                   # Test suite (55 tests)
+├── models_cache/            # Persistent embedding model cache
+├── tests/                   # Test suite (70+ tests)
 ├── venv/                    # Python virtual environment
 ├── requirements.txt         # Python dependencies
 ├── LICENSE                  # MIT License
@@ -1158,6 +1195,18 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.4.0 (2026-04-16)
+
+- **NEW**: `models_cache_dir` — persistent embedding model cache, prevents re-download after reboots
+- **NEW**: `exclude_patterns` — glob-based file/directory exclusion during indexing (under `documents:` section)
+- **NEW**: Jupyter Notebook (.ipynb) parser — extracts markdown and code cell sources only, ignores outputs and base64
+- **NEW**: MCP stdout protection — redirects stdout to stderr before server start, fixes "Failed to connect" errors
+- **NEW**: File watcher resilience — graceful fallback when Linux inotify limits are reached
+- **NEW**: MetaTrader (.mq4, .mqh) support — opt-in code parsing for MQL4/MQL5 files
+- **NEW**: 23 new tests (exclude patterns, ipynb parser, stdout protection)
+- **IMPROVED**: All 4 presets updated with new config fields
+- Community credit: [@Hohlas](https://github.com/Hohlas) ([PR #18](https://github.com/lyonzin/knowledge-rag/pull/18))
 
 ### v3.3.2 (2026-04-06)
 

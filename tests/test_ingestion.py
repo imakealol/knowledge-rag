@@ -167,3 +167,17 @@ def test_pptx_parser(parser, tmp_path):
         assert "Test Slide" in doc.content
     except ImportError:
         pytest.skip("python-pptx not installed")
+
+
+# ── Parser Registry ──
+
+
+def test_mqh_mq4_in_parsers(parser):
+    """MQL4/MQL5 extensions must be registered in parser dispatch table."""
+    assert ".mqh" in parser._parsers
+    assert ".mq4" in parser._parsers
+
+
+def test_ipynb_in_parsers(parser):
+    """Jupyter Notebook must be registered in parser dispatch table."""
+    assert ".ipynb" in parser._parsers

@@ -1,9 +1,10 @@
 """Document Ingestion System for Knowledge RAG
 
 Multi-format document parsing, chunking, and metadata extraction.
-Supports: MD, PDF, TXT, PY, JSON, DOCX, XLSX, PPTX, CSV
+Supports: MD, PDF, TXT, PY, JSON, DOCX, XLSX, PPTX, CSV, IPYNB, MQH, MQ4
 """
 
+import fnmatch
 import hashlib
 import json
 import os
@@ -103,6 +104,9 @@ class DocumentParser:
             ".xlsx": self._parse_xlsx,
             ".pptx": self._parse_pptx,
             ".csv": self._parse_csv,
+            ".ipynb": self._parse_ipynb,
+            ".mqh": self._parse_code,
+            ".mq4": self._parse_code,
         }
 
     def parse_file(self, filepath: Path) -> Optional[Document]:
@@ -151,12 +155,41 @@ class DocumentParser:
 
         return doc
 
+    @staticmethod
+    def _should_exclude(path: Path, base_dir: Path, patterns: List[str]) -> bool:
+        """Check if a path matches any exclude pattern.
+
+        Uses fnmatch on the relative path (forward-slash normalized) and
+        also checks each path component individually for simple name patterns.
+        """
+        if not patterns:
+            return False
+
+        try:
+            rel = path.relative_to(base_dir)
+        except ValueError:
+            rel = path
+
+        rel_str = str(rel).replace("\\", "/")
+
+        for pattern in patterns:
+            # Full relative path match (e.g., "docs/drafts/*.tmp")
+            if fnmatch.fnmatch(rel_str, pattern):
+                return True
+            # Check each component (e.g., "node_modules" matches any/node_modules/deep)
+            for part in rel.parts:
+                if fnmatch.fnmatch(part, pattern):
+                    return True
+
+        return False
+
     def parse_directory(self, directory: Path = None) -> List[Document]:
         """Parse all supported files in a directory recursively (follows symlinks)."""
         directory = Path(directory) if directory else config.documents_dir
         documents = []
         seen_dirs = set()
         supported = set(config.supported_formats)
+        exclude = config.exclude_patterns
 
         for root, dirs, files in os.walk(directory, followlinks=True):
             real_root = os.path.realpath(root)
@@ -165,9 +198,15 @@ class DocumentParser:
                 continue
             seen_dirs.add(real_root)
 
+            # Filter out excluded directories in-place (prevents os.walk from descending)
+            if exclude:
+                dirs[:] = [d for d in dirs if not self._should_exclude(Path(root) / d, directory, exclude)]
+
             for fname in files:
                 filepath = Path(root) / fname
                 if filepath.suffix.lower() not in supported:
+                    continue
+                if exclude and self._should_exclude(filepath, directory, exclude):
                     continue
                 try:
                     doc = self.parse_file(filepath)
@@ -435,6 +474,59 @@ class DocumentParser:
             parts.append(" | ".join(row))
 
         content = "\n".join(parts)
+        return content, metadata
+
+    def _parse_ipynb(self, filepath: Path) -> tuple[str, Dict]:
+        """Parse Jupyter Notebook, extracting only markdown and code cell sources.
+
+        Ignores outputs, execution counts, cell metadata, and base64 images.
+        """
+        raw = filepath.read_text(encoding="utf-8", errors="ignore")
+        metadata = {
+            "type": "jupyter_notebook",
+            "title": filepath.stem,
+            "file_size": filepath.stat().st_size,
+            "modified": datetime.fromtimestamp(filepath.stat().st_mtime).isoformat(),
+        }
+
+        try:
+            nb = json.loads(raw)
+        except json.JSONDecodeError:
+            metadata["is_valid_json"] = False
+            return raw, metadata
+
+        metadata["is_valid_json"] = True
+        metadata["nbformat"] = nb.get("nbformat", 0)
+        kernel = nb.get("metadata", {}).get("kernelspec", {})
+        metadata["kernel"] = kernel.get("display_name", kernel.get("name", "unknown"))
+
+        cells = nb.get("cells", [])
+        metadata["cells"] = len(cells)
+        code_cells = 0
+        markdown_cells = 0
+
+        parts = []
+        for cell in cells:
+            cell_type = cell.get("cell_type", "")
+            source = cell.get("source", "")
+
+            if isinstance(source, list):
+                source = "".join(source)
+
+            if not source or not source.strip():
+                continue
+
+            if cell_type == "markdown":
+                parts.append(source)
+                markdown_cells += 1
+            elif cell_type == "code":
+                parts.append(f"```python\n{source}\n```")
+                code_cells += 1
+
+        metadata["code_cells"] = code_cells
+        metadata["markdown_cells"] = markdown_cells
+
+        content = "\n\n".join(parts)
         return content, metadata
 
     # =========================================================================

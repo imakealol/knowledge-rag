@@ -39,6 +39,11 @@ paths:
   # You generally don't need to touch this.
   data_dir: "./data"
 
+  # Persistent cache for embedding models (~250MB).
+  # Prevents re-downloading after reboots (especially on Linux where /tmp is cleared).
+  # Default: ./models_cache (relative to project root)
+  models_cache_dir: "./models_cache"
+
 
 # ============================================================================
 # DOCUMENTS
@@ -58,6 +63,25 @@ documents:
     # - .csv     # CSV data files
     # - .py      # Python source code
     # - .json    # JSON files
+    # - .ipynb   # Jupyter Notebooks (extracts markdown + code cells)
+    # - .mq4     # MetaTrader MQL4 source (opt-in, add to enable)
+    # - .mqh     # MetaTrader MQL4/5 headers (opt-in, add to enable)
+
+  # Exclude patterns — skip files/directories matching these patterns.
+  # Uses fnmatch glob syntax. Patterns match against relative paths AND
+  # individual path components (so "node_modules" matches at any depth).
+  #
+  # Examples:
+  #   exclude_patterns:
+  #     - "node_modules"     # Skip node_modules at any depth
+  #     - ".git"             # Skip .git directories
+  #     - "__pycache__"      # Skip Python cache
+  #     - ".venv"            # Skip virtual environments
+  #     - "*.tmp"            # Skip .tmp files anywhere
+  #     - "drafts/*"         # Skip everything in top-level drafts/
+  #
+  # Default: [] (nothing excluded — all supported files are indexed)
+  exclude_patterns: []
 
   # How documents are split into searchable chunks.
   #

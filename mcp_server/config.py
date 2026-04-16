@@ -1,4 +1,4 @@
-"""Configuration for Knowledge RAG System v3.3.2 — YAML-configurable"""
+"""Configuration for Knowledge RAG System v3.4.0 — YAML-configurable"""
 
 import os
 from dataclasses import dataclass, field
@@ -15,7 +15,7 @@ import yaml
 _source_dir = Path(__file__).parent.parent
 
 
-_SUPPORTED_SUFFIXES = frozenset([".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"])
+_SUPPORTED_SUFFIXES = frozenset([".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv", ".ipynb"])
 
 
 def _has_documents(path: Path) -> bool:
@@ -357,6 +357,9 @@ class Config:
     documents_dir: Path = field(
         default_factory=lambda: _resolve_path(_get("paths", "documents_dir", None), BASE_DIR / "documents")
     )
+    models_cache_dir: Path = field(
+        default_factory=lambda: _resolve_path(_get("paths", "models_cache_dir", None), BASE_DIR / "models_cache")
+    )
 
     # Chunking
     chunk_size: int = field(
@@ -419,9 +422,14 @@ class Config:
     # Supported formats
     supported_formats: List[str] = field(
         default_factory=lambda: _get(
-            "documents", "supported_formats", [".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"]
+            "documents",
+            "supported_formats",
+            [".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv", ".ipynb"],
         )
     )
+
+    # Exclude patterns for directory traversal
+    exclude_patterns: List[str] = field(default_factory=lambda: _get("documents", "exclude_patterns", []))
 
     # Category mappings
     category_mappings: Dict[str, str] = field(
@@ -471,6 +479,13 @@ class Config:
             print("[WARN] supported_formats is empty or invalid, using defaults")
             self.supported_formats = [".md", ".txt", ".pdf", ".py", ".json", ".docx", ".xlsx", ".pptx", ".csv"]
 
+        # Validate exclude_patterns is a list of strings
+        if not isinstance(self.exclude_patterns, list):
+            print(f"[WARN] exclude_patterns={self.exclude_patterns!r} invalid, using []")
+            self.exclude_patterns = []
+        else:
+            self.exclude_patterns = [p for p in self.exclude_patterns if isinstance(p, str)]
+
         # Validate keyword_routes values are lists (not strings)
         for cat, keywords in list(self.keyword_routes.items()):
             if not isinstance(keywords, list):
@@ -481,6 +496,7 @@ class Config:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.chroma_dir.mkdir(parents=True, exist_ok=True)
         self.documents_dir.mkdir(parents=True, exist_ok=True)
+        self.models_cache_dir.mkdir(parents=True, exist_ok=True)
 
 
 # Global config instance
