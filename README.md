@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.4.2-blue.svg)
+![Version](https://img.shields.io/badge/version-3.4.3-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -25,7 +25,7 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 **12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
 
-[What's New](#whats-new-in-v342) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v343) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
@@ -72,9 +72,9 @@ After the initial rebuild, startup and queries are faster than v2.x because ther
 
 ---
 
-## What's New in v3.4.2
+## What's New in v3.4.3
 
-**MCP connection fix** — Stdout redirect now happens at module load (before any import), preventing `[INFO]` messages from corrupting the MCP stdio JSON-RPC stream. This was the root cause of "Failed to connect" on fresh installs.
+**MCP connection fix (correct)** — Stdout redirect now uses save/restore pattern: `__init__.py` saves real stdout and redirects print() to stderr during module load (protecting against `[INFO]` pollution from config/embedding imports), then `server.py main()` restores the original stdout right before `mcp.run()` so JSON-RPC responses flow correctly. v3.4.2 broke the response channel with a global redirect.
 
 **Reliable pip install** (v3.4.1) — Auto-detects project directory from venv location. No `cwd`/`cd /d` workarounds needed.
 
@@ -1202,9 +1202,13 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 
 ## Changelog
 
-### v3.4.2 (2026-04-16)
+### v3.4.3 (2026-04-16)
 
-- **FIX**: Stdout redirect moved to module-level (before imports) — fixes "Failed to connect" MCP error caused by `[INFO]` messages polluting the JSON-RPC stdio stream during server initialization
+- **FIX**: Correct stdout protection via save/restore pattern — `__init__.py` saves original stdout and redirects to stderr during init, `server.py main()` restores it before `mcp.run()`. v3.4.2's global redirect broke MCP JSON-RPC response channel.
+
+### v3.4.2 (2026-04-16) — BROKEN, use v3.4.3
+
+- **FIX**: Stdout redirect moved to module-level (before imports) — fixes "Failed to connect" MCP error caused by `[INFO]` messages polluting the JSON-RPC stdio stream during server initialization. **BUG**: Global redirect also blocked JSON-RPC responses.
 
 ### v3.4.1 (2026-04-16)
 

@@ -19,20 +19,14 @@ Features:
     - CRUD operations via MCP tools (add, update, remove docs)
 
 Autor:   Lyon (Ailton Rocha)
-Versao:  3.4.2
+Versao:  3.4.3
 Data:    2026-04-16
 """
-
-import sys
-
-# Redirect stdout to stderr IMMEDIATELY — before any import can print().
-# MCP stdio uses stdout for JSON-RPC; stray print() corrupts the stream.
-# This must happen before importing config, chromadb, fastembed, etc.
-sys.stdout = sys.stderr
 
 import hashlib
 import json
 import re
+import sys
 import threading
 import time
 from collections import OrderedDict
@@ -1878,8 +1872,6 @@ def _handle_init():
 
 def main():
     """Run the MCP server"""
-    import sys
-
     if len(sys.argv) > 1 and sys.argv[1] == "init":
         _handle_init()
         return
@@ -1917,6 +1909,10 @@ def main():
         print(f"[WARN] Failed to start file watcher: {e}")
         print("[WARN] Auto-reindexing disabled. Use reindex_documents tool manually.")
 
+    # Restore real stdout for MCP JSON-RPC, keep print() going to stderr
+    from . import _original_stdout
+
+    sys.stdout = _original_stdout
     mcp.run()
 
 
