@@ -19,9 +19,16 @@ Features:
     - CRUD operations via MCP tools (add, update, remove docs)
 
 Autor:   Lyon (Ailton Rocha)
-Versao:  3.4.1
+Versao:  3.4.2
 Data:    2026-04-16
 """
+
+import sys
+
+# Redirect stdout to stderr IMMEDIATELY — before any import can print().
+# MCP stdio uses stdout for JSON-RPC; stray print() corrupts the stream.
+# This must happen before importing config, chromadb, fastembed, etc.
+sys.stdout = sys.stderr
 
 import hashlib
 import json
@@ -1909,11 +1916,6 @@ def main():
     except Exception as e:
         print(f"[WARN] Failed to start file watcher: {e}")
         print("[WARN] Auto-reindexing disabled. Use reindex_documents tool manually.")
-
-    # Redirect stdout to stderr to protect MCP stdio JSON-RPC stream.
-    # Libraries (fastembed, chromadb, watchdog) may print() at runtime,
-    # which would corrupt the protocol. This ONLY affects the server process.
-    sys.stdout = sys.stderr
 
     mcp.run()
 

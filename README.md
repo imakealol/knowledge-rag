@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.4.1-blue.svg)
+![Version](https://img.shields.io/badge/version-3.4.2-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -25,7 +25,7 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 **12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
 
-[What's New](#whats-new-in-v341) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v342) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
@@ -72,11 +72,13 @@ After the initial rebuild, startup and queries are faster than v2.x because ther
 
 ---
 
-## What's New in v3.4.1
+## What's New in v3.4.2
 
-**Reliable pip install** — The server now auto-detects the project directory from the venv location. No more `cwd`, `cd /d`, or `KNOWLEDGE_RAG_DIR` workarounds needed. Just `pip install knowledge-rag`, `knowledge-rag init`, configure MCP, and it works.
+**MCP connection fix** — Stdout redirect now happens at module load (before any import), preventing `[INFO]` messages from corrupting the MCP stdio JSON-RPC stream. This was the root cause of "Failed to connect" on fresh installs.
 
-**Linux/macOS installer** — New `install.sh` script. Same plug-and-play experience as `install.ps1` on Windows.
+**Reliable pip install** (v3.4.1) — Auto-detects project directory from venv location. No `cwd`/`cd /d` workarounds needed.
+
+**Linux/macOS installer** (v3.4.1) — New `install.sh` script with pip and from-source modes.
 
 ## What's New in v3.4.0
 
@@ -1199,6 +1201,10 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.4.2 (2026-04-16)
+
+- **FIX**: Stdout redirect moved to module-level (before imports) — fixes "Failed to connect" MCP error caused by `[INFO]` messages polluting the JSON-RPC stdio stream during server initialization
 
 ### v3.4.1 (2026-04-16)
 
