@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.4.3-blue.svg)
+![Version](https://img.shields.io/badge/version-3.5.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
@@ -25,7 +25,7 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 **12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
 
-[What's New](#whats-new-in-v343) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v350) | [Supported Formats](#supported-formats) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
@@ -72,9 +72,50 @@ After the initial rebuild, startup and queries are faster than v2.x because ther
 
 ---
 
-## What's New in v3.4.3
+## What's New in v3.5.0
 
-**MCP connection fix (correct)** — Stdout redirect now uses save/restore pattern: `__init__.py` saves real stdout and redirects print() to stderr during module load (protecting against `[INFO]` pollution from config/embedding imports), then `server.py main()` restores the original stdout right before `mcp.run()` so JSON-RPC responses flow correctly. v3.4.2 broke the response channel with a global redirect.
+### GPU-Accelerated Embeddings (Optional)
+
+ONNX embeddings can now run on NVIDIA GPUs for **5-10x faster indexing**. Opt-in — CPU remains the default.
+
+```bash
+# Install with GPU support
+pip install knowledge-rag[gpu]
+```
+
+```yaml
+# config.yaml
+models:
+  embedding:
+    gpu: true   # Falls back to CPU if CUDA unavailable
+```
+
+Ideal for large knowledge bases (1000+ documents) where full rebuilds take minutes on CPU. After the initial index, incremental reindexing (`force: true`) takes seconds regardless.
+
+### Supported Formats
+
+| Format | Extension | Parser | Default | Notes |
+|--------|-----------|--------|---------|-------|
+| Markdown | `.md` | Section-aware (splits at `##`) | Yes | Headers preserved as chunk boundaries |
+| Plain Text | `.txt` | Fixed-size chunking | Yes | 1000 chars + 200 overlap |
+| PDF | `.pdf` | PyMuPDF extraction | Yes | Text-based PDFs only (no OCR) |
+| Python | `.py` | Code-aware parser | Yes | Functions/classes as chunks |
+| JSON | `.json` | Structure-aware | Yes | Flattened key-value extraction |
+| CSV | `.csv` | Row-based parser | Yes | Headers + rows as text |
+| Word | `.docx` | python-docx | Yes | Headings preserved as markdown |
+| Excel | `.xlsx` | openpyxl | Yes | Sheet-by-sheet extraction |
+| PowerPoint | `.pptx` | python-pptx | Yes | Slide-by-slide extraction |
+| Jupyter Notebook | `.ipynb` | Cell-aware parser | Yes | Markdown + code cells only, no outputs/base64 |
+| MQL4 Header | `.mqh` | Code parser | No | MetaTrader — add to `supported_formats` to enable |
+| MQL4 Source | `.mq4` | Code parser | No | MetaTrader — add to `supported_formats` to enable |
+
+> **Tip:** The parser dispatch is extensible. Any format mapped in `_parsers` can be enabled via `supported_formats` in config.yaml.
+
+---
+
+## What's New in v3.4.x
+
+**MCP connection fix** (v3.4.3) — Stdout save/restore pattern prevents `[INFO]` messages from corrupting JSON-RPC while keeping the response channel intact. v3.4.2 broke it with a global redirect.
 
 **Reliable pip install** (v3.4.1) — Auto-detects project directory from venv location. No `cwd`/`cd /d` workarounds needed.
 
@@ -276,7 +317,7 @@ flowchart TB
     end
 
     subgraph INGEST["DOCUMENT INGESTION"]
-        PARSERS["Parsers<br/>MD | PDF | TXT | PY | JSON"]
+        PARSERS["Parsers<br/>MD | PDF | TXT | PY | JSON<br/>DOCX | XLSX | PPTX | CSV | IPYNB"]
         CHUNKER["Chunking<br/>MD: section-aware<br/>Other: 1000 chars + 200 overlap"]
         PARSERS --> CHUNKER
     end
@@ -409,6 +450,7 @@ flowchart LR
 - Python 3.11 or 3.12 (**NOT** 3.13+ due to onnxruntime compatibility)
 - Claude Code CLI
 - ~200MB disk for model cache (auto-downloaded on first run)
+- *Optional:* NVIDIA GPU + CUDA for accelerated embeddings (`pip install knowledge-rag[gpu]`)
 
 > **Note:** Ollama is no longer required. FastEmbed downloads models automatically.
 
@@ -1201,6 +1243,11 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.5.0 (2026-04-16)
+
+- **NEW**: Optional GPU acceleration for ONNX embeddings — `pip install knowledge-rag[gpu]` + `models.embedding.gpu: true` in config. 5-10x faster indexing on NVIDIA GPUs with automatic CPU fallback.
+- **DOCS**: Supported formats table added to README (12 formats: md, txt, pdf, py, json, csv, docx, xlsx, pptx, ipynb, mqh, mq4)
 
 ### v3.4.3 (2026-04-16)
 

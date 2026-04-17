@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "knowledge-rag"
-version = "3.4.3"
+version = "3.5.0"
 description = "Local RAG System for Claude Code — Hybrid search + Cross-encoder Reranking + 12 MCP Tools. Zero external servers."
 readme = "README.md"
 license = {text = "MIT"}
@@ -42,6 +42,9 @@ dependencies = [
     "watchdog>=4.0.0",
     "pyyaml>=6.0",
 ]
+
+[project.optional-dependencies]
+gpu = ["onnxruntime-gpu>=1.14.0"]
 
 [project.urls]
 Homepage = "https://github.com/lyonzin/knowledge-rag"

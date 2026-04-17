@@ -124,6 +124,10 @@ models:
   embedding:
     model: "BAAI/bge-small-en-v1.5"
     dimensions: 384
+    # GPU acceleration for ONNX embeddings (5-10x faster indexing).
+    # Requires: pip install knowledge-rag[gpu]  (installs onnxruntime-gpu)
+    # Falls back to CPU automatically if CUDA is unavailable.
+    gpu: false
 
   # Reranker — re-scores search results for better accuracy.
   # Adds ~50-100ms per query but significantly improves result quality.

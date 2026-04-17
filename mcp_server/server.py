@@ -19,7 +19,7 @@ Features:
     - CRUD operations via MCP tools (add, update, remove docs)
 
 Autor:   Lyon (Ailton Rocha)
-Versao:  3.4.3
+Versao:  3.5.0
 Data:    2026-04-16
 """
 
@@ -141,8 +141,13 @@ class FastEmbedEmbeddings:
     def __init__(self, model: str = None):
         self.model_name = model or config.embedding_model
         self._dim = config.embedding_dim
-        print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D)...")
-        self._model = TextEmbedding(model_name=self.model_name, cache_dir=str(config.models_cache_dir))
+        kwargs = {"model_name": self.model_name, "cache_dir": str(config.models_cache_dir)}
+        if config.gpu_acceleration:
+            kwargs["providers"] = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D) [GPU accelerated]...")
+        else:
+            print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D)...")
+        self._model = TextEmbedding(**kwargs)
         print("[INFO] Embedding model loaded successfully")
 
     def __call__(self, input: List[str]) -> List[List[float]]:

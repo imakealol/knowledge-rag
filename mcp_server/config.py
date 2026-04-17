@@ -413,6 +413,13 @@ class Config:
             else 384
         )
     )
+    gpu_acceleration: bool = field(
+        default_factory=lambda: (
+            _get("models", "embedding", {}).get("gpu", False)
+            if isinstance(_get("models", "embedding", {}), dict)
+            else False
+        )
+    )
 
     # Reranker
     reranker_model: str = field(
