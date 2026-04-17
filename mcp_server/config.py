@@ -51,12 +51,17 @@ _venv_dir = _venv_project_dir()
 
 if os.environ.get("KNOWLEDGE_RAG_DIR"):
     BASE_DIR = Path(os.environ["KNOWLEDGE_RAG_DIR"])
+elif _venv_dir is not None and (_venv_dir / "config.yaml").exists():
+    # Prefer venv parent if it has an actual config.yaml (editable installs, PyPI installs)
+    BASE_DIR = _venv_dir
+elif _is_project_root(_source_dir) and (_source_dir / "config.yaml").exists():
+    BASE_DIR = _source_dir
+elif _is_project_root(Path.cwd()):
+    BASE_DIR = Path.cwd()
 elif _is_project_root(_source_dir):
     BASE_DIR = _source_dir
 elif _is_project_root(_venv_dir):
     BASE_DIR = _venv_dir
-elif _is_project_root(Path.cwd()):
-    BASE_DIR = Path.cwd()
 else:
     BASE_DIR = _venv_dir if _venv_dir is not None else Path.cwd()
 

@@ -2,10 +2,11 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.5.1-blue.svg)
+![Version](https://img.shields.io/badge/version-3.5.2-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
+![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900.svg?logo=nvidia)
 [![CI](https://github.com/lyonzin/knowledge-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/lyonzin/knowledge-rag/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/lyonzin/knowledge-rag/actions/workflows/security.yml/badge.svg)](https://github.com/lyonzin/knowledge-rag/actions/workflows/security.yml)
 [![Glama Score](https://glama.ai/mcp/servers/lyonzin/knowledge-rag/badges/score.svg)](https://glama.ai/mcp/servers/lyonzin/knowledge-rag)
@@ -25,35 +26,47 @@ Your documents become instantly searchable inside Claude Code — with reranking
 
 **12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
 
-[What's New](#whats-new-in-v350) | [Supported Formats](#supported-formats) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v352) | [Supported Formats](#supported-formats) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
 ---
 
-## What's New in v3.5.0
+## What's New in v3.5.2
 
 ### GPU-Accelerated Embeddings (Optional)
 
-ONNX embeddings can now run on NVIDIA GPUs for **5-10x faster indexing**. Opt-in — CPU remains the default.
+ONNX embeddings can run on NVIDIA GPUs for **5-10x faster indexing**. Opt-in — CPU remains the default.
 
 ```bash
+# NVIDIA GPU (requires CUDA 12.x drivers)
 pip install knowledge-rag[gpu]
+
+# Also install CUDA 12 runtime libraries (if not using CUDA Toolkit 12.x)
+pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12
 ```
 
 ```yaml
 # config.yaml
 models:
   embedding:
-    gpu: true   # Falls back to CPU if CUDA unavailable
+    gpu: true   # Automatic CPU fallback if CUDA is unavailable
 ```
+
+**How it works:**
+- Sets `CUDAExecutionProvider` as primary, `CPUExecutionProvider` as fallback
+- Auto-discovers CUDA 12 DLLs from pip-installed NVIDIA packages (no manual PATH config)
+- If GPU init fails for any reason, falls back to CPU silently with a `[WARN]` log
+- `gpu: false` (default) forces CPU-only mode — zero CUDA overhead, clean logs
 
 Ideal for large knowledge bases (1000+ documents) where full rebuilds take minutes on CPU. After the initial index, incremental reindexing (`force: true`) takes seconds regardless.
 
 ### Recent Highlights
 
+- **v3.5.2** — CUDA DLL auto-discovery from pip packages, graceful GPU→CPU fallback, explicit CPU provider (no CUDA noise when `gpu: false`), BASE_DIR resolution fix for editable installs
+- **v3.5.1** — Remove Python `<3.13` upper bound — 3.13 and 3.14 now supported
+- **v3.5.0** — Optional GPU acceleration, supported formats table, full README rewrite
 - **v3.4.3** — MCP stdout save/restore fix (v3.4.2 broke JSON-RPC responses)
-- **v3.4.1** — `pip install` auto-detects project dir from venv location, Linux/macOS `install.sh`
 - **v3.4.0** — Persistent model cache, exclude patterns, Jupyter Notebook parser, inotify resilience, MetaTrader support
 
 See [Changelog](#changelog) for full history.
@@ -972,6 +985,13 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.5.2 (2026-04-16)
+
+- **NEW**: Auto-discovery of CUDA 12 DLLs from pip-installed NVIDIA packages — no manual PATH configuration needed
+- **NEW**: Graceful GPU→CPU fallback with `[WARN]` log when CUDA init fails (missing drivers, wrong version, etc.)
+- **FIX**: Explicit `CPUExecutionProvider` when `gpu: false` — eliminates noisy CUDA probe errors in logs
+- **FIX**: BASE_DIR resolution now correctly prefers directories with `config.yaml` over those with only `config.example.yaml` (fixes editable installs)
 
 ### v3.5.1 (2026-04-16)
 

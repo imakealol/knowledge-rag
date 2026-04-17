@@ -19,7 +19,7 @@ Features:
     - CRUD operations via MCP tools (add, update, remove docs)
 
 Autor:   Lyon (Ailton Rocha)
-Versao:  3.5.1
+Versao:  3.5.2
 Data:    2026-04-16
 """
 
@@ -138,17 +138,60 @@ class FastEmbedEmbeddings:
     Model: BAAI/bge-small-en-v1.5 (384-dim, MTEB score 62.x)
     """
 
+    @staticmethod
+    def _setup_cuda_dll_paths():
+        """Add NVIDIA CUDA 12 pip package DLL paths to os.environ['PATH'].
+
+        When onnxruntime-gpu is installed alongside nvidia-cublas-cu12 etc.,
+        the DLLs live under site-packages/nvidia/*/bin/ and onnxruntime can't
+        find them unless they're on PATH. This is a no-op if the dirs don't exist.
+        """
+        import os
+        import site
+
+        site_dirs = site.getsitepackages() if hasattr(site, "getsitepackages") else []
+        nvidia_libs = [
+            "nvidia/cublas/bin",
+            "nvidia/cudnn/bin",
+            "nvidia/cuda_runtime/bin",
+            "nvidia/cufft/bin",
+            "nvidia/curand/bin",
+            "nvidia/cusolver/bin",
+            "nvidia/cusparse/bin",
+            "nvidia/nvjitlink/bin",
+            "nvidia/cuda_nvrtc/bin",
+        ]
+        added = []
+        for sp in site_dirs:
+            for lib in nvidia_libs:
+                p = os.path.join(sp, lib)
+                if os.path.isdir(p) and p not in os.environ.get("PATH", ""):
+                    os.environ["PATH"] = p + os.pathsep + os.environ.get("PATH", "")
+                    added.append(lib.split("/")[1])
+        if added:
+            print(f"[INFO] CUDA DLL paths added for: {', '.join(dict.fromkeys(added))}")
+
     def __init__(self, model: str = None):
         self.model_name = model or config.embedding_model
         self._dim = config.embedding_dim
         kwargs = {"model_name": self.model_name, "cache_dir": str(config.models_cache_dir)}
         if config.gpu_acceleration:
+            self._setup_cuda_dll_paths()
             kwargs["providers"] = ["CUDAExecutionProvider", "CPUExecutionProvider"]
             print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D) [GPU accelerated]...")
+            try:
+                self._model = TextEmbedding(**kwargs)
+                print("[INFO] Embedding model loaded successfully [GPU]")
+            except (ValueError, RuntimeError) as e:
+                print(f"[WARN] GPU init failed ({e}), falling back to CPU...")
+                kwargs["providers"] = ["CPUExecutionProvider"]
+                self._model = TextEmbedding(**kwargs)
+                print("[INFO] Embedding model loaded successfully [CPU fallback]")
         else:
+            kwargs["providers"] = ["CPUExecutionProvider"]
             print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D)...")
-        self._model = TextEmbedding(**kwargs)
-        print("[INFO] Embedding model loaded successfully")
+            self._model = TextEmbedding(**kwargs)
+            print("[INFO] Embedding model loaded successfully")
 
     def __call__(self, input: List[str]) -> List[List[float]]:
         """
