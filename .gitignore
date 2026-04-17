@@ -14,6 +14,7 @@ documents/logscale/
 documents/general/
 documents/ctf/
 documents/development/
+documents/documents/
 
 # Sensitive file formats (extra safety layer)
 documents/**/*.pdf
