@@ -2,8 +2,8 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-3.5.0-blue.svg)
-![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-green.svg)
+![Version](https://img.shields.io/badge/version-3.5.1-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 [![CI](https://github.com/lyonzin/knowledge-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/lyonzin/knowledge-rag/actions/workflows/ci.yml)
@@ -281,7 +281,7 @@ flowchart LR
 
 ### Prerequisites
 
-- Python 3.11 or 3.12 (**NOT** 3.13+ — onnxruntime incompatibility)
+- Python 3.11+
 - Claude Code CLI
 - ~200MB disk for model cache (auto-downloaded on first run)
 - *Optional:* NVIDIA GPU + CUDA for [accelerated embeddings](#gpu-accelerated-embeddings-optional) (`pip install knowledge-rag[gpu]`)
@@ -912,17 +912,10 @@ knowledge-rag/
 
 ### Python version mismatch
 
-ChromaDB depends on onnxruntime which requires Python 3.11 or 3.12. Python 3.13+ is **NOT** supported.
+Requires Python 3.11 or newer.
 
 ```bash
-# Check version
-python --version
-
-# Windows: use specific version
-py -3.12 -m venv venv
-
-# Linux/macOS: use specific version
-python3.12 -m venv venv
+python --version    # Must be 3.11+
 ```
 
 ### FastEmbed model download fails
@@ -979,6 +972,10 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 ---
 
 ## Changelog
+
+### v3.5.1 (2026-04-16)
+
+- **FIX**: Removed Python upper bound constraint (`<3.13` → `>=3.11`). Python 3.13 and 3.14 now supported — onnxruntime ships wheels for both.
 
 ### v3.5.0 (2026-04-16)
 

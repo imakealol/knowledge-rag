@@ -19,7 +19,7 @@ Features:
     - CRUD operations via MCP tools (add, update, remove docs)
 
 Autor:   Lyon (Ailton Rocha)
-Versao:  3.5.0
+Versao:  3.5.1
 Data:    2026-04-16
 """
 
