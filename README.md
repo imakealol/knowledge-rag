@@ -12,19 +12,19 @@
 [![Glama Score](https://glama.ai/mcp/servers/lyonzin/knowledge-rag/badges/score.svg)](https://glama.ai/mcp/servers/lyonzin/knowledge-rag)
 [![PyPI](https://img.shields.io/pypi/v/knowledge-rag)](https://pypi.org/project/knowledge-rag/)
 
-### LLMs don't know your docs. Every conversation starts from zero.
+### Your docs, your machine, zero cloud. Claude Code searches them natively.
 
-Your notes, writeups, internal procedures, PDFs — none of it exists to your AI assistant.
-Cloud RAG solutions leak your private data. Local ones require Docker, Ollama, and 15 minutes of setup before a single query.
+Drop your PDFs, markdown, code, notebooks — **1800+ files, 39K chunks, indexed in under 3 minutes.**<br/>
+Hybrid search (BM25 + semantic vectors + cross-encoder reranking) through 12 MCP tools.<br/>
+Everything runs locally via ONNX. No Docker, no Ollama, no API keys, no data leaves your machine.
 
-**Knowledge RAG fixes this.** One `pip install`, zero external servers.
-Your documents become instantly searchable inside Claude Code — with reranking precision that actually finds what you need.
-
-`pip install → restart Claude Code → done.`
+```
+pip install knowledge-rag → restart Claude Code → search_knowledge("your query")
+```
 
 ---
 
-**12 MCP Tools** | **Hybrid Search + Cross-Encoder Reranking** | **Markdown-Aware Chunking** | **100% Local, Zero Cloud**
+**12 MCP Tools** | **Hybrid Search + Reranking** | **12 File Formats** | **Optional NVIDIA GPU** | **100% Local**
 
 [What's New](#whats-new-in-v352) | [Supported Formats](#supported-formats) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
