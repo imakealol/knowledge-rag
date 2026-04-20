@@ -253,7 +253,7 @@ class CrossEncoderReranker:
         """Lazy initialization of cross-encoder model"""
         if self._model is None:
             print(f"[INFO] Loading reranker model: {self.model_name}...")
-            self._model = TextCrossEncoder(model_name=self.model_name)
+            self._model = TextCrossEncoder(model_name=self.model_name, cache_dir=str(config.models_cache_dir))
             print("[INFO] Reranker model loaded successfully")
 
     def rerank(self, query: str, documents: List[Dict[str, Any]], top_k: int = 5) -> List[Dict[str, Any]]:
