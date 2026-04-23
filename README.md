@@ -1028,6 +1028,10 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 
 ## Changelog
 
+### v3.6.1 (2026-04-23)
+
+- **DOCS**: Reorganize Installation section — add NPX and Docker install methods, update What's New to v3.6.0
+
 ### v3.6.0 (2026-04-23)
 
 - **NEW**: Multi-language code parsing — C (`.c`), C++ (`.cpp`/`.h`), JavaScript (`.js`/`.jsx`), TypeScript (`.ts`/`.tsx`) with per-language function/class/import extraction
