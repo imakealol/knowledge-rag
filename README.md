@@ -26,43 +26,33 @@ pip install knowledge-rag → restart Claude Code → search_knowledge("your que
 
 **12 MCP Tools** | **Hybrid Search + Reranking** | **20 File Formats** | **Optional NVIDIA GPU** | **100% Local**
 
-[What's New](#whats-new-in-v352) | [Supported Formats](#supported-formats) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
+[What's New](#whats-new-in-v360) | [Supported Formats](#supported-formats) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
 </div>
 
 ---
 
-## What's New in v3.5.2
+## What's New in v3.6.0
 
-### GPU-Accelerated Embeddings (Optional)
+### Multi-Language Code Parsing
 
-ONNX embeddings can run on NVIDIA GPUs for **5-10x faster indexing**. Opt-in — CPU remains the default.
+Language-aware extraction for **C**, **C++**, **JavaScript**, **TypeScript**, and **XML** — functions, classes, structs, interfaces, imports, and namespaces are captured as searchable metadata. Total supported formats: **20**.
+
+### 5 Ways to Install
 
 ```bash
-# NVIDIA GPU (requires CUDA 12.x drivers)
-pip install knowledge-rag[gpu]
-
-# Also install CUDA 12 runtime libraries (if not using CUDA Toolkit 12.x)
-pip install nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12
+npx -y knowledge-rag                    # NPM — zero setup, auto-manages Python venv
+pip install knowledge-rag               # PyPI — classic Python install
+curl -fsSL .../install.sh | bash        # One-line installer (Linux/macOS/Windows)
+docker pull ghcr.io/lyonzin/knowledge-rag  # Docker — models pre-downloaded
+git clone ... && pip install -r ...     # From source
 ```
 
-```yaml
-# config.yaml
-models:
-  embedding:
-    gpu: true   # Automatic CPU fallback if CUDA is unavailable
-```
-
-**How it works:**
-- Sets `CUDAExecutionProvider` as primary, `CPUExecutionProvider` as fallback
-- Auto-discovers CUDA 12 DLLs from pip-installed NVIDIA packages (no manual PATH config)
-- If GPU init fails for any reason, falls back to CPU silently with a `[WARN]` log
-- `gpu: false` (default) forces CPU-only mode — zero CUDA overhead, clean logs
-
-Ideal for large knowledge bases (1000+ documents) where full rebuilds take minutes on CPU. After the initial index, incremental reindexing (`force: true`) takes seconds regardless.
+All methods produce the same MCP server. See [Installation](#installation) for full instructions.
 
 ### Recent Highlights
 
+- **v3.6.0** — Multi-language code parsing (C/C++/JS/TS/XML), NPM wrapper, Docker image, automated release pipeline
 - **v3.5.2** — CUDA DLL auto-discovery from pip packages, graceful GPU→CPU fallback, explicit CPU provider (no CUDA noise when `gpu: false`), BASE_DIR resolution fix for editable installs
 - **v3.5.1** — Remove Python `<3.13` upper bound — 3.13 and 3.14 now supported
 - **v3.5.0** — Optional GPU acceleration, supported formats table, full README rewrite
@@ -305,35 +295,33 @@ flowchart LR
 - Python 3.11+
 - Claude Code CLI
 - ~200MB disk for model cache (auto-downloaded on first run)
-- *Optional:* NVIDIA GPU + CUDA for [accelerated embeddings](#gpu-accelerated-embeddings-optional) (`pip install knowledge-rag[gpu]`)
+- *Optional:* NVIDIA GPU + CUDA for accelerated embeddings (`pip install knowledge-rag[gpu]` + `models.embedding.gpu: true` in config)
 
-### Quick Start (3 steps)
+### Install Methods
 
-**Step 1: Install**
+Pick one — all produce the same running server.
+
+#### Option A: NPX (fastest)
+
+Requires Node.js 16+. Handles Python venv, pip install, and version upgrades automatically.
 
 ```bash
-# Option A: One-line installer (recommended)
-# Linux/macOS:
-curl -fsSL https://raw.githubusercontent.com/lyonzin/knowledge-rag/master/install.sh | bash
-# Windows (PowerShell):
-irm https://raw.githubusercontent.com/lyonzin/knowledge-rag/master/install.ps1 | iex
-
-# Option B: pip install (manual)
-mkdir ~/knowledge-rag && cd ~/knowledge-rag
-python3 -m venv venv && source venv/bin/activate
-pip install knowledge-rag
-knowledge-rag init              # Exports config template, presets, creates documents/
-
-# Option C: Clone from source
-git clone https://github.com/lyonzin/knowledge-rag.git ~/knowledge-rag
-cd ~/knowledge-rag
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+claude mcp add knowledge-rag -s user -- npx -y knowledge-rag
 ```
 
-> **Windows users**: Use `python` instead of `python3`, `venv\Scripts\activate` instead of `source venv/bin/activate`.
+That's it. On first run, `npx` creates a venv at `~/.knowledge-rag/`, installs the PyPI package, and starts the MCP server. Subsequent runs reuse the cached venv.
 
-**Step 2: Configure Claude Code**
+#### Option B: One-line installer
+
+```bash
+# Linux/macOS:
+curl -fsSL https://raw.githubusercontent.com/lyonzin/knowledge-rag/master/install.sh | bash
+
+# Windows (PowerShell):
+irm https://raw.githubusercontent.com/lyonzin/knowledge-rag/master/install.ps1 | iex
+```
+
+Then configure Claude Code:
 
 ```bash
 claude mcp add knowledge-rag -s user -- ~/knowledge-rag/venv/bin/python -m mcp_server.server
@@ -341,7 +329,54 @@ claude mcp add knowledge-rag -s user -- ~/knowledge-rag/venv/bin/python -m mcp_s
 
 > **Windows**: `claude mcp add knowledge-rag -s user -- %USERPROFILE%\knowledge-rag\venv\Scripts\python.exe -m mcp_server.server`
 
-The server auto-detects the project directory from the venv location. No `cd` wrapper or `cwd` field needed.
+#### Option C: pip install
+
+```bash
+mkdir ~/knowledge-rag && cd ~/knowledge-rag
+python3 -m venv venv && source venv/bin/activate
+pip install knowledge-rag
+knowledge-rag init              # Exports config template, presets, creates documents/
+```
+
+Then configure Claude Code:
+
+```bash
+claude mcp add knowledge-rag -s user -- ~/knowledge-rag/venv/bin/python -m mcp_server.server
+```
+
+> **Windows users**: Use `python` instead of `python3`, `venv\Scripts\activate` instead of `source venv/bin/activate`.
+> **Windows path**: `claude mcp add knowledge-rag -s user -- %USERPROFILE%\knowledge-rag\venv\Scripts\python.exe -m mcp_server.server`
+
+#### Option D: Clone from source
+
+```bash
+git clone https://github.com/lyonzin/knowledge-rag.git ~/knowledge-rag
+cd ~/knowledge-rag
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Then configure Claude Code:
+
+```bash
+claude mcp add knowledge-rag -s user -- ~/knowledge-rag/venv/bin/python -m mcp_server.server
+```
+
+#### Option E: Docker
+
+```bash
+docker pull ghcr.io/lyonzin/knowledge-rag:latest
+```
+
+```bash
+claude mcp add knowledge-rag -s user -- \
+  docker run -i --rm \
+  -v ~/knowledge-rag/documents:/app/documents \
+  -v ~/knowledge-rag/data:/app/data \
+  ghcr.io/lyonzin/knowledge-rag:latest
+```
+
+Models are pre-downloaded in the image — no first-run delay.
 
 <details>
 <summary>Alternative: manual JSON config</summary>
@@ -374,10 +409,9 @@ Add to `~/.claude.json`:
 > Replace `YOUR_USER` with your username, or use the full path from `echo $HOME`.
 </details>
 
-**Step 3: Restart Claude Code**
+### Verify
 
 ```bash
-# Verify the server is connected
 claude mcp list
 ```
 
