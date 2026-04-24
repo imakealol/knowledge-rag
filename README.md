@@ -1028,8 +1028,9 @@ With ~200 documents, expect ~300-500MB RAM. The embedding model (~50MB) and rera
 
 ## Changelog
 
-### v3.6.1 (2026-04-23)
+### v3.6.2 (2026-04-23)
 
+- **INFRA**: NPM provenance attestation (SLSA supply chain security), full README on npm page
 - **DOCS**: Reorganize Installation section — add NPX and Docker install methods, update What's New to v3.6.0
 
 ### v3.6.0 (2026-04-23)

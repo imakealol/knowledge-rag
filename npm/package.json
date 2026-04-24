@@ -1,6 +1,6 @@
 {
   "name": "knowledge-rag",
-  "version": "3.6.1",
+  "version": "3.6.2",
   "description": "Local RAG System for Claude Code — Hybrid search + Cross-encoder Reranking + 12 MCP Tools + 20 Format Parsers. Zero external servers.",
   "bin": {
     "knowledge-rag": "./bin/cli.js"
@@ -27,6 +27,9 @@
   },
   "bugs": {
     "url": "https://github.com/lyonzin/knowledge-rag/issues"
+  },
+  "funding": {
+    "url": "https://github.com/sponsors/lyonzin"
   },
   "engines": {
     "node": ">=16"
