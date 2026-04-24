@@ -4,15 +4,13 @@
 
 [![PyPI](https://img.shields.io/pypi/v/knowledge-rag)](https://pypi.org/project/knowledge-rag/)
 [![NPM](https://img.shields.io/npm/v/knowledge-rag)](https://www.npmjs.com/package/knowledge-rag)
-[![PyPI Downloads](https://img.shields.io/pypi/dm/knowledge-rag)](https://pypi.org/project/knowledge-rag/)
-[![NPM Downloads](https://img.shields.io/npm/dm/knowledge-rag)](https://www.npmjs.com/package/knowledge-rag)
+[![Downloads](https://static.pepy.tech/badge/knowledge-rag/month)](https://pepy.tech/project/knowledge-rag)
 ![Python](https://img.shields.io/badge/python-3.11%2B-green.svg)
 ![License](https://img.shields.io/badge/license-MIT-yellow.svg)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20CUDA-76B900.svg?logo=nvidia)
 [![CI](https://github.com/lyonzin/knowledge-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/lyonzin/knowledge-rag/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/lyonzin/knowledge-rag/actions/workflows/security.yml/badge.svg)](https://github.com/lyonzin/knowledge-rag/actions/workflows/security.yml)
-[![Snyk](https://snyk.io/test/github/lyonzin/knowledge-rag/badge.svg)](https://snyk.io/test/github/lyonzin/knowledge-rag)
 [![Glama Score](https://glama.ai/mcp/servers/lyonzin/knowledge-rag/badges/score.svg)](https://glama.ai/mcp/servers/lyonzin/knowledge-rag)
 
 ### Your docs, your machine, zero cloud. Claude Code searches them natively.
