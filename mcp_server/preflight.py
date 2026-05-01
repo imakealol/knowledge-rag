@@ -66,8 +66,7 @@ def run_preflight(timeout_seconds: int = 30) -> bool:
     reason = "segfault" if result.returncode in (-11, 139) else "failed"
     backup_dir = _backup_active_index(reason)
     print(
-        f"[RECOVERY] Chroma preflight failed with code {result.returncode}; "
-        f"moved active index to {backup_dir}",
+        f"[RECOVERY] Chroma preflight failed with code {result.returncode}; moved active index to {backup_dir}",
         file=sys.stderr,
     )
     if result.stderr:
