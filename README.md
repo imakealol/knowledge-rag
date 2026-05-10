@@ -38,7 +38,7 @@ pip install knowledge-rag → restart Claude Code → search_knowledge("your que
 
 ### Quality Gate — 7-Pillar PR Validation
 
-knowledge-rag is now used daily by 70+ enterprise teams. Every PR (including dependabot bumps and one-line fixes) is now evaluated against **35+ automated checks** spread across 7 pillars before any human review:
+Every PR (including dependabot bumps and one-line fixes) is now evaluated against **35+ automated checks** spread across 7 pillars before any human review:
 
 | Pillar | What it enforces | Tools |
 |---|---|---|
