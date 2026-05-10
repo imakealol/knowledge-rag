@@ -13,6 +13,56 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+# ---------------------------------------------------------------------------
+# Workaround: defense-in-depth for Windows pytest atexit interpreter-shutdown
+# races
+# ---------------------------------------------------------------------------
+# Two flake sources have surfaced on Windows GHA runners with pytest 9.0.3:
+#
+#   1) pytest's own ``_pytest.pathlib.cleanup_numbered_dir`` atexit callback
+#      runs ``root.glob("garbage-*")`` without try/except. Concurrent FS
+#      access (Defender, Search Indexer, parallel runner) can raise OSError
+#      during interpreter shutdown -> exit code 1 with "Exception ignored
+#      in atexit callback" even though all tests passed.
+#
+#   2) Background HuggingFace download threads (huggingface_hub uses
+#      ``concurrent.futures.ThreadPoolExecutor`` for parallel snapshot
+#      fetches) can outlive pytest's stdout. A late warning emit then trips
+#      "ValueError: I/O operation on closed file" -> non-zero exit. The
+#      primary fix for this is ``HF_HUB_OFFLINE=1`` in the CI workflow;
+#      we also wrap pathlib cleanup here so any pytest-side race is contained.
+#
+# We patch ``_pytest.pathlib.cleanup_numbered_dir`` BEFORE the first
+# ``tmp_path`` fixture runs (which is when ``make_numbered_dir_with_cleanup``
+# calls ``atexit.register(cleanup_numbered_dir, ...)`` and binds the global
+# lookup). ``conftest.py`` is imported at collection time so the atexit
+# callback registered later is our safe wrapper.
+#
+# Track upstream pytest-dev/pytest#7491 family. Remove this block once
+# pytest ships a real fix.
+try:
+    import _pytest.pathlib as _pp
+
+    # Public attribute on this module so the regression test in
+    # test_pytest_atexit_patch.py can verify the wrapper is in place
+    # without poking at closure cells.
+    _ORIGINAL_CLEANUP_NUMBERED_DIR = _pp.cleanup_numbered_dir
+
+    def _safe_cleanup_numbered_dir(*args, **kwargs):
+        """OSError-safe wrapper around pytest's atexit tmp_path cleanup."""
+        try:
+            return _ORIGINAL_CLEANUP_NUMBERED_DIR(*args, **kwargs)
+        except OSError:
+            # Race during interpreter shutdown — leftovers will be removed on
+            # the next pytest run via the same cleanup mechanism.
+            return None
+
+    _pp.cleanup_numbered_dir = _safe_cleanup_numbered_dir
+except Exception:
+    # Never let the workaround itself break test collection.
+    _ORIGINAL_CLEANUP_NUMBERED_DIR = None
+
+
 @pytest.fixture
 def mock_embedding():
     """Mock FastEmbed to avoid model download in CI."""
