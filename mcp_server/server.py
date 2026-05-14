@@ -356,7 +356,6 @@ class FastEmbedEmbeddings:
 
         # --- Check 4: Minimal ONNX session with CUDAExecutionProvider ---
         try:
-            import numpy as np
             import onnxruntime as ort
 
             # Create a trivial ONNX graph (identity op) to test CUDA session
@@ -503,8 +502,8 @@ class FastEmbedEmbeddings:
                     else:
                         # GPU configured but not ready — go straight to CPU
                         print(
-                            f"[WARN] gpu: true in config but GPU is not available. "
-                            f"Loading on CPU."
+                            "[WARN] gpu: true in config but GPU is not available. "
+                            "Loading on CPU."
                         )
                         kwargs["providers"] = ["CPUExecutionProvider"]
                         print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D) [CPU]...")
