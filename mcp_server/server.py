@@ -310,9 +310,7 @@ class FastEmbedEmbeddings:
                 status.missing_deps.append(f"{dll_name} (pip install {pip_pkg})")
 
         if status.missing_deps:
-            status.fallback_reason = (
-                f"Missing CUDA dependencies: {', '.join(status.missing_deps)}"
-            )
+            status.fallback_reason = f"Missing CUDA dependencies: {', '.join(status.missing_deps)}"
             return status
 
         # --- Check 3: GPU device via nvidia-smi ---
@@ -336,16 +334,10 @@ class FastEmbedEmbeddings:
                 except (ValueError, IndexError):
                     status.vram_mb = 0
             else:
-                status.fallback_reason = (
-                    "nvidia-smi failed or returned no GPU. "
-                    "Check NVIDIA driver installation."
-                )
+                status.fallback_reason = "nvidia-smi failed or returned no GPU. Check NVIDIA driver installation."
                 return status
         except FileNotFoundError:
-            status.fallback_reason = (
-                "nvidia-smi not found on PATH. "
-                "Install NVIDIA drivers or add nvidia-smi to PATH."
-            )
+            status.fallback_reason = "nvidia-smi not found on PATH. Install NVIDIA drivers or add nvidia-smi to PATH."
             return status
         except subprocess.TimeoutExpired:
             status.fallback_reason = "nvidia-smi timed out (driver hang?)"
@@ -391,8 +383,7 @@ class FastEmbedEmbeddings:
                     status.provider = "CUDAExecutionProvider"
                 else:
                     status.fallback_reason = (
-                        f"CUDA session created but active provider is {active[0]}. "
-                        "ORT silently fell back to CPU."
+                        f"CUDA session created but active provider is {active[0]}. ORT silently fell back to CPU."
                     )
             except Exception:
                 # Minimal model might fail due to format — try provider check only
@@ -423,11 +414,7 @@ class FastEmbedEmbeddings:
             if status.device_name:
                 print(f"  Device:     {status.device_name}")
             if status.vram_mb > 0:
-                vram_display = (
-                    f"{status.vram_mb / 1024:.1f} GB"
-                    if status.vram_mb >= 1024
-                    else f"{status.vram_mb} MB"
-                )
+                vram_display = f"{status.vram_mb / 1024:.1f} GB" if status.vram_mb >= 1024 else f"{status.vram_mb} MB"
                 print(f"  VRAM:       {vram_display}")
         else:
             print("  GPU STATUS: UNAVAILABLE — falling back to CPU")
@@ -501,10 +488,7 @@ class FastEmbedEmbeddings:
                             print("[INFO] Embedding model loaded successfully [CPU fallback]")
                     else:
                         # GPU configured but not ready — go straight to CPU
-                        print(
-                            "[WARN] gpu: true in config but GPU is not available. "
-                            "Loading on CPU."
-                        )
+                        print("[WARN] gpu: true in config but GPU is not available. Loading on CPU.")
                         kwargs["providers"] = ["CPUExecutionProvider"]
                         print(f"[INFO] Loading embedding model: {self.model_name} ({self._dim}D) [CPU]...")
                         self._model = TextEmbedding(**kwargs)
