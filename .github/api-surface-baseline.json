@@ -1195,6 +1195,18 @@
               "has_default": true,
               "kind": "positional",
               "name": "hybrid_alpha"
+            },
+            {
+              "annotated": true,
+              "has_default": true,
+              "kind": "positional",
+              "name": "min_score"
+            },
+            {
+              "annotated": true,
+              "has_default": true,
+              "kind": "positional",
+              "name": "snippet_mode"
             }
           ],
           "is_async": false,

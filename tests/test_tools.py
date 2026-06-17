@@ -67,9 +67,164 @@ class TestSearchKnowledge:
     def test_valid_query_success(self, mock_orch):
         from mcp_server.server import search_knowledge
 
-        r = json.loads(search_knowledge("test query"))
+        r = json.loads(search_knowledge("test query", snippet_mode=False))
         assert r["status"] == "success"
         assert r["result_count"] == 1
+
+    def test_min_score_filters_low_results(self, mock_orch):
+        from mcp_server.server import search_knowledge
+
+        mock_orch.query.return_value = [
+            {
+                "content": "high",
+                "source": "a.md",
+                "filename": "a.md",
+                "category": "general",
+                "chunk_index": 0,
+                "score": 0.9,
+                "raw_rrf_score": 0.02,
+                "reranker_score": None,
+                "semantic_rank": 1,
+                "bm25_rank": 1,
+                "search_method": "hybrid",
+                "keywords": ["test"],
+                "routed_by": "none",
+            },
+            {
+                "content": "low",
+                "source": "b.md",
+                "filename": "b.md",
+                "category": "general",
+                "chunk_index": 0,
+                "score": 0.1,
+                "raw_rrf_score": 0.001,
+                "reranker_score": None,
+                "semantic_rank": None,
+                "bm25_rank": 5,
+                "search_method": "keyword",
+                "keywords": ["test"],
+                "routed_by": "none",
+            },
+        ]
+        r = json.loads(search_knowledge("test", min_score=0.5, snippet_mode=False))
+        assert r["result_count"] == 1
+        assert r["filtered_by_score"] == 1
+        assert r["results"][0]["content"] == "high"
+
+    def test_min_score_zero_returns_all(self, mock_orch):
+        from mcp_server.server import search_knowledge
+
+        mock_orch.query.return_value = [
+            {
+                "content": "a",
+                "source": "a.md",
+                "filename": "a.md",
+                "category": "general",
+                "chunk_index": 0,
+                "score": 0.9,
+                "raw_rrf_score": 0.02,
+                "reranker_score": None,
+                "semantic_rank": 1,
+                "bm25_rank": 1,
+                "search_method": "hybrid",
+                "keywords": [],
+                "routed_by": "none",
+            },
+            {
+                "content": "b",
+                "source": "b.md",
+                "filename": "b.md",
+                "category": "general",
+                "chunk_index": 0,
+                "score": 0.0,
+                "raw_rrf_score": 0.001,
+                "reranker_score": None,
+                "semantic_rank": None,
+                "bm25_rank": 5,
+                "search_method": "keyword",
+                "keywords": [],
+                "routed_by": "none",
+            },
+        ]
+        r = json.loads(search_knowledge("test", min_score=0.0, snippet_mode=False))
+        assert r["result_count"] == 2
+        assert r["filtered_by_score"] == 0
+
+    def test_snippet_mode_truncates_long_content(self, mock_orch):
+        from mcp_server.server import search_knowledge
+
+        long_content = "A" * 300 + ". " + "B" * 300 + ". " + "C" * 300
+        mock_orch.query.return_value = [
+            {
+                "content": long_content,
+                "source": "a.md",
+                "filename": "a.md",
+                "category": "general",
+                "chunk_index": 0,
+                "score": 1.0,
+                "raw_rrf_score": 0.02,
+                "reranker_score": None,
+                "semantic_rank": 1,
+                "bm25_rank": 1,
+                "search_method": "hybrid",
+                "keywords": [],
+                "routed_by": "none",
+            },
+        ]
+        r = json.loads(search_knowledge("test", snippet_mode=True))
+        result = r["results"][0]
+        assert len(result["content"]) <= 510
+        assert result["content_length"] == len(long_content)
+
+    def test_snippet_mode_preserves_short_content(self, mock_orch):
+        from mcp_server.server import search_knowledge
+
+        short = "Short content here."
+        mock_orch.query.return_value = [
+            {
+                "content": short,
+                "source": "a.md",
+                "filename": "a.md",
+                "category": "general",
+                "chunk_index": 0,
+                "score": 1.0,
+                "raw_rrf_score": 0.02,
+                "reranker_score": None,
+                "semantic_rank": 1,
+                "bm25_rank": 1,
+                "search_method": "hybrid",
+                "keywords": [],
+                "routed_by": "none",
+            },
+        ]
+        r = json.loads(search_knowledge("test", snippet_mode=True))
+        assert r["results"][0]["content"] == short
+        assert r["results"][0]["content_length"] == len(short)
+
+    def test_snippet_mode_false_returns_full(self, mock_orch):
+        from mcp_server.server import search_knowledge
+
+        long_content = "X" * 1000
+        mock_orch.query.return_value = [
+            {
+                "content": long_content,
+                "source": "a.md",
+                "filename": "a.md",
+                "category": "general",
+                "chunk_index": 0,
+                "score": 1.0,
+                "raw_rrf_score": 0.02,
+                "reranker_score": None,
+                "semantic_rank": 1,
+                "bm25_rank": 1,
+                "search_method": "hybrid",
+                "keywords": [],
+                "routed_by": "none",
+            },
+        ]
+        r = json.loads(search_knowledge("test", snippet_mode=False))
+        assert r["results"][0]["content"] == long_content
+        assert "content_length" not in r["results"][0]
 
 
 class TestAddDocument:

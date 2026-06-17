@@ -67,7 +67,7 @@ def test_legacy_v3_7_0_config_with_excludes_parses():
 # Frozen contract: parameter names callers (LLMs) supply by name.
 # Bumping requires MAJOR version + CHANGELOG migration entry.
 MCP_TOOL_SIGNATURES = {
-    "search_knowledge": ["query", "max_results", "category", "hybrid_alpha"],
+    "search_knowledge": ["query", "max_results", "category", "hybrid_alpha", "min_score", "snippet_mode"],
     "search_similar": ["filepath", "max_results"],
     "get_document": ["filepath"],
     "add_document": ["content", "filepath", "category"],

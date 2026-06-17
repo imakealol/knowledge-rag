@@ -25,6 +25,7 @@ Data:    2026-04-16
 
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -41,15 +42,15 @@ from typing import Any, Dict, List, Optional, Tuple
 # ChromaDB
 import chromadb
 
+# BM25 scoring (custom inverted-index, replaces rank_bm25 full-corpus scan)
+import numpy as np
+
 # FastEmbed for ONNX embeddings + reranker
 from fastembed import TextEmbedding
 from fastembed.rerank.cross_encoder import TextCrossEncoder
 
 # FastMCP
 from mcp.server.fastmcp import FastMCP
-
-# BM25 for keyword search (hybrid search)
-from rank_bm25 import BM25Okapi
 from watchdog.events import FileSystemEventHandler
 
 # File watcher for auto-reindex
@@ -643,17 +644,26 @@ class CrossEncoderReranker:
 
 class BM25Index:
     """
-    BM25 keyword index for hybrid search with query expansion.
+    BM25 keyword index with inverted-index acceleration for hybrid search.
 
-    Maintains a BM25 index of all document chunks for fast keyword-based retrieval.
-    Supports security-term synonym expansion for improved recall.
+    Uses a custom inverted index to score only documents containing query terms
+    instead of scanning the entire corpus. Produces scores identical to BM25Okapi
+    (k1=1.5, b=0.75) but runs in O(matching_docs) instead of O(corpus_size).
     """
 
     def __init__(self):
         self.corpus: List[str] = []
         self.corpus_ids: List[str] = []
-        self.bm25: Optional[BM25Okapi] = None
         self._tokenized_corpus: List[List[str]] = []
+        self._inverted_index: Dict[str, List[Tuple[int, int]]] = {}
+        self._idf: Dict[str, float] = {}
+        self._doc_len: Optional[np.ndarray] = None
+        self._avgdl: float = 0.0
+        self._corpus_size: int = 0
+        self._k1: float = 1.5
+        self._b: float = 0.75
+        self._epsilon: float = 0.25
+        self._index_built: bool = False
 
     def _tokenize(self, text: str) -> List[str]:
         """Simple tokenization: lowercase, split on non-alphanumeric, keep hyphens"""
@@ -723,41 +733,114 @@ class BM25Index:
             self._tokenized_corpus.append(self._tokenize(text))
 
     def build_index(self) -> None:
-        """Build/rebuild the BM25 index from the corpus"""
-        if self._tokenized_corpus:
-            self.bm25 = BM25Okapi(self._tokenized_corpus)
+        """Build inverted index with pre-computed IDF and doc lengths."""
+        if not self._tokenized_corpus:
+            return
+
+        corpus_size = len(self._tokenized_corpus)
+        doc_lengths = np.empty(corpus_size, dtype=np.float64)
+        nd: Dict[str, int] = {}
+        inverted: Dict[str, List[Tuple[int, int]]] = {}
+
+        for doc_idx, tokens in enumerate(self._tokenized_corpus):
+            doc_lengths[doc_idx] = len(tokens)
+            tf: Dict[str, int] = {}
+            for t in tokens:
+                tf[t] = tf.get(t, 0) + 1
+            for term, freq in tf.items():
+                nd[term] = nd.get(term, 0) + 1
+                posting = inverted.get(term)
+                if posting is None:
+                    inverted[term] = [(doc_idx, freq)]
+                else:
+                    posting.append((doc_idx, freq))
+
+        avgdl = float(doc_lengths.sum() / corpus_size) if corpus_size > 0 else 0.0
+
+        idf: Dict[str, float] = {}
+        idf_sum = 0.0
+        negative_idfs: List[str] = []
+        for word, freq in nd.items():
+            val = math.log(corpus_size - freq + 0.5) - math.log(freq + 0.5)
+            idf[word] = val
+            idf_sum += val
+            if val < 0:
+                negative_idfs.append(word)
+
+        average_idf = idf_sum / len(idf) if idf else 0.0
+        eps = self._epsilon * average_idf
+        for word in negative_idfs:
+            idf[word] = eps
+
+        self._inverted_index = inverted
+        self._idf = idf
+        self._doc_len = doc_lengths
+        self._avgdl = avgdl
+        self._corpus_size = corpus_size
+        self._index_built = True
 
     def search(self, query: str, top_k: int = 20) -> List[Tuple[str, float]]:
         """
         Search the BM25 index with query expansion.
 
-        Returns list of (chunk_id, score) tuples sorted by score descending.
+        Uses inverted-index posting lists to score only documents containing
+        at least one query term. Returns (chunk_id, score) sorted descending.
         """
-        if not self.bm25 or not self.corpus:
+        if not self._index_built or not self.corpus:
             return []
 
-        # Expand query with synonyms before tokenizing
         expanded_query = self.expand_query(query)
         tokenized_query = self._tokenize(expanded_query)
         if not tokenized_query:
             return []
 
-        scores = self.bm25.get_scores(tokenized_query)
+        k1 = self._k1
+        b = self._b
+        avgdl = self._avgdl
+        doc_len = self._doc_len
+        idf_lookup = self._idf
+        inv = self._inverted_index
 
-        results = []
-        for idx, score in enumerate(scores):
-            if score > 0:
-                results.append((self.corpus_ids[idx], score))
+        candidate_scores: Dict[int, float] = {}
+        for q in tokenized_query:
+            idf_q = idf_lookup.get(q, 0.0)
+            if idf_q == 0.0:
+                continue
+            posting = inv.get(q)
+            if posting is None:
+                continue
+            for doc_idx, tf in posting:
+                dl = doc_len[doc_idx]
+                num = tf * (k1 + 1.0)
+                den = tf + k1 * (1.0 - b + b * dl / avgdl)
+                candidate_scores[doc_idx] = candidate_scores.get(doc_idx, 0.0) + idf_q * (num / den)
 
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results[:top_k]
+        if not candidate_scores:
+            return []
+
+        n_candidates = len(candidate_scores)
+        if n_candidates <= top_k:
+            results = [(self.corpus_ids[idx], score) for idx, score in candidate_scores.items()]
+            results.sort(key=lambda x: x[1], reverse=True)
+            return results
+
+        indices = np.fromiter(candidate_scores.keys(), dtype=np.intp, count=n_candidates)
+        scores = np.fromiter(candidate_scores.values(), dtype=np.float64, count=n_candidates)
+        partition_idx = np.argpartition(scores, -top_k)[-top_k:]
+        top_indices = partition_idx[np.argsort(scores[partition_idx])[::-1]]
+        return [(self.corpus_ids[indices[i]], float(scores[i])) for i in top_indices]
 
     def clear(self) -> None:
         """Clear the index"""
         self.corpus = []
         self.corpus_ids = []
         self._tokenized_corpus = []
-        self.bm25 = None
+        self._inverted_index = {}
+        self._idf = {}
+        self._doc_len = None
+        self._avgdl = 0.0
+        self._corpus_size = 0
+        self._index_built = False
 
     def __len__(self) -> int:
         return len(self.corpus)
@@ -896,6 +979,9 @@ class KnowledgeOrchestrator:
         # Index metadata cache
         self._metadata_file = config.data_dir / "index_metadata.json"
         self._indexed_docs: Dict[str, Dict] = self._load_metadata()
+
+        # Reverse lookup: resolved source path → doc_id (for O(1) adjacent chunk expansion)
+        self._source_to_docid: Dict[str, str] = self._build_source_lookup()
 
         # Migration: deferred — checked in main() after full init
         self._needs_rebuild = False
@@ -1068,6 +1154,9 @@ class KnowledgeOrchestrator:
                 orphan_ids.append(doc_id)
 
         for doc_id in orphan_ids:
+            src = self._indexed_docs[doc_id].get("source", "")
+            if src:
+                self._source_to_docid.pop(str(Path(src).resolve()), None)
             del self._indexed_docs[doc_id]
 
         _progress_interval = max(1, stats["total_files"] // 10)
@@ -1096,6 +1185,9 @@ class KnowledgeOrchestrator:
 
                     removed = self._remove_document_chunks(existing_doc_id)
                     stats["chunks_removed"] += removed
+                    src = self._indexed_docs[existing_doc_id].get("source", "")
+                    if src:
+                        self._source_to_docid.pop(str(Path(src).resolve()), None)
                     del self._indexed_docs[existing_doc_id]
                     stats["updated"] += 1
                 elif not force and doc.id in self._indexed_docs:
@@ -1128,6 +1220,7 @@ class KnowledgeOrchestrator:
                     "file_mtime": file_mtime,
                     "file_size": file_size,
                 }
+                self._source_to_docid[str(doc.source.resolve())] = doc.id
 
             except Exception as e:
                 stats["errors"] += 1
@@ -1283,6 +1376,7 @@ class KnowledgeOrchestrator:
         )
 
         self._indexed_docs = {}
+        self._source_to_docid = {}
         self.bm25_index.clear()
         self._bm25_initialized = False
         self.query_cache.invalidate()
@@ -1495,9 +1589,8 @@ class KnowledgeOrchestrator:
         """
         Expand each result with adjacent chunks for broader context.
 
-        For each matched chunk, fetches the chunks immediately before and after it
-        (same document) and prepends/appends their content. This gives the LLM
-        surrounding context while maintaining precise retrieval on the matched chunk.
+        Uses a single batched ChromaDB fetch for all adjacent chunks across all
+        results, plus O(1) reverse lookup for doc_id resolution.
 
         Args:
             results: Formatted search results
@@ -1509,55 +1602,54 @@ class KnowledgeOrchestrator:
         if not results:
             return results
 
-        for result in results:
+        all_adj_ids: List[str] = []
+        result_adj_map: List[Tuple[int, int, List[str]]] = []
+
+        for i, result in enumerate(results):
             source = result.get("source", "")
             chunk_idx = result.get("chunk_index", 0)
-
             if not source or chunk_idx is None:
                 continue
 
-            # Find the doc_id from metadata lookup
-            doc_id = None
-            for did, info in list(self._indexed_docs.items()):
-                stored = str(Path(info.get("source", "")).resolve())
-                if stored == str(Path(source).resolve()):
-                    doc_id = did
-                    break
-
+            doc_id = self._source_to_docid.get(str(Path(source).resolve()))
             if not doc_id:
                 continue
 
-            # Fetch adjacent chunks from ChromaDB
-            adjacent_ids = []
+            adj_ids: List[str] = []
             for offset in range(-window, window + 1):
                 if offset == 0:
-                    continue  # Skip the matched chunk itself
+                    continue
                 adj_id = f"{doc_id}_{chunk_idx + offset}"
-                adjacent_ids.append(adj_id)
+                adj_ids.append(adj_id)
+                all_adj_ids.append(adj_id)
 
-            if not adjacent_ids:
-                continue
+            if adj_ids:
+                result_adj_map.append((i, chunk_idx, adj_ids))
 
-            try:
-                adj_data = self.collection.get(ids=adjacent_ids, include=["documents"])
-                if adj_data["ids"] and adj_data["documents"]:
-                    # Build ordered context: prev + matched + next
-                    parts_before = []
-                    parts_after = []
-                    for adj_id, adj_doc in zip(adj_data["ids"], adj_data["documents"]):
-                        if adj_doc:
-                            idx = int(adj_id.split("_")[-1])
-                            if idx < chunk_idx:
-                                parts_before.append(adj_doc)
-                            else:
-                                parts_after.append(adj_doc)
+        if not all_adj_ids:
+            return results
 
-                    if parts_before or parts_after:
-                        expanded = "\n\n".join(parts_before + [result["content"]] + parts_after)
-                        result["content"] = expanded
-                        result["context_expanded"] = True
-            except Exception:
-                pass  # Adjacent chunk not found — use original content
+        try:
+            adj_data = self.collection.get(ids=all_adj_ids, include=["documents"])
+            fetched = dict(zip(adj_data["ids"], adj_data["documents"]))
+        except Exception:
+            return results
+
+        for result_idx, chunk_idx, adj_ids in result_adj_map:
+            parts_before: List[str] = []
+            parts_after: List[str] = []
+            for adj_id in adj_ids:
+                doc = fetched.get(adj_id)
+                if doc:
+                    idx = int(adj_id.split("_")[-1])
+                    if idx < chunk_idx:
+                        parts_before.append(doc)
+                    else:
+                        parts_after.append(doc)
+            if parts_before or parts_after:
+                expanded = "\n\n".join(parts_before + [results[result_idx]["content"]] + parts_after)
+                results[result_idx]["content"] = expanded
+                results[result_idx]["context_expanded"] = True
 
         return results
 
@@ -1690,6 +1782,7 @@ class KnowledgeOrchestrator:
             "file_mtime": file_mtime,
             "file_size": file_size,
         }
+        self._source_to_docid[str(full_path.resolve())] = doc.id
         self._save_metadata()
         self.query_cache.invalidate()
         self.bm25_index.build_index()
@@ -1710,16 +1803,12 @@ class KnowledgeOrchestrator:
         # Resolve to absolute for consistent comparison with stored metadata
         filepath_resolved = str(filepath.resolve())
 
-        doc_id = None
-        for did, info in list(self._indexed_docs.items()):
-            stored = str(Path(info.get("source", "")).resolve())
-            if stored == filepath_resolved:
-                doc_id = did
-                break
+        doc_id = self._source_to_docid.get(filepath_resolved)
 
         old_chunks_removed = 0
         if doc_id:
             old_chunks_removed = self._remove_document_chunks(doc_id)
+            self._source_to_docid.pop(filepath_resolved, None)
             del self._indexed_docs[doc_id]
 
         filepath.write_text(content, encoding="utf-8")
@@ -1749,6 +1838,7 @@ class KnowledgeOrchestrator:
             "file_mtime": file_mtime,
             "file_size": file_size,
         }
+        self._source_to_docid[str(filepath.resolve())] = doc.id
         self._save_metadata()
         self.query_cache.invalidate()
         self.bm25_index.build_index()
@@ -1764,17 +1854,13 @@ class KnowledgeOrchestrator:
         """Remove a document from the index. Optionally delete from disk."""
         filepath_resolved = str(Path(filepath).resolve())
 
-        doc_id = None
-        for did, info in list(self._indexed_docs.items()):
-            stored = str(Path(info.get("source", "")).resolve())
-            if stored == filepath_resolved:
-                doc_id = did
-                break
+        doc_id = self._source_to_docid.get(filepath_resolved)
 
         if not doc_id:
             return {"error": f"Document not found in index: {filepath}"}
 
         chunks_removed = self._remove_document_chunks(doc_id)
+        self._source_to_docid.pop(filepath_resolved, None)
         del self._indexed_docs[doc_id]
 
         if delete_file:
@@ -1825,12 +1911,7 @@ class KnowledgeOrchestrator:
         """Find documents similar to a given document using embedding similarity."""
         filepath_resolved = str(Path(filepath).resolve())
 
-        doc_id = None
-        for did, info in list(self._indexed_docs.items()):
-            stored = str(Path(info.get("source", "")).resolve())
-            if stored == filepath_resolved:
-                doc_id = did
-                break
+        doc_id = self._source_to_docid.get(filepath_resolved)
 
         if not doc_id:
             return []
@@ -1991,6 +2072,15 @@ class KnowledgeOrchestrator:
         snapshot = dict(self._indexed_docs)
         self._metadata_file.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    def _build_source_lookup(self) -> Dict[str, str]:
+        """Build reverse lookup from resolved source path to doc_id."""
+        lookup: Dict[str, str] = {}
+        for doc_id, info in list(self._indexed_docs.items()):
+            src = info.get("source", "")
+            if src:
+                lookup[str(Path(src).resolve())] = doc_id
+        return lookup
+
 
 # =============================================================================
 # MCP Server
@@ -2017,6 +2107,30 @@ def get_orchestrator() -> KnowledgeOrchestrator:
 
 
 # =============================================================================
+# MCP Tools — Helpers
+# =============================================================================
+
+
+def _make_snippet(content: str, max_chars: int = 500) -> str:
+    """Truncate content at a natural break point."""
+    if len(content) <= max_chars:
+        return content
+    truncated = content[:max_chars]
+    min_pos = int(max_chars * 0.6)
+    last_nl = truncated.rfind("\n", min_pos)
+    if last_nl > min_pos:
+        return truncated[:last_nl].rstrip() + "\n..."
+    for sep in (". ", "? ", "! ", "; "):
+        last_sep = truncated.rfind(sep, min_pos)
+        if last_sep > min_pos:
+            return truncated[: last_sep + len(sep) - 1] + " ..."
+    last_space = truncated.rfind(" ", min_pos)
+    if last_space > min_pos:
+        return truncated[:last_space] + " ..."
+    return truncated + "..."
+
+
+# =============================================================================
 # MCP Tools — Existing (6)
 # =============================================================================
 
@@ -2024,7 +2138,14 @@ def get_orchestrator() -> KnowledgeOrchestrator:
 @mcp.tool()
 @rate_limited
 @instrument("search_knowledge")
-def search_knowledge(query: str, max_results: int = 5, category: str = None, hybrid_alpha: float = 0.3) -> str:
+def search_knowledge(
+    query: str,
+    max_results: int = 5,
+    category: str = None,
+    hybrid_alpha: float = 0.3,
+    min_score: float = 0.0,
+    snippet_mode: bool = True,
+) -> str:
     """
     Hybrid search combining semantic search + BM25 keyword search with cross-encoder reranking.
 
@@ -2038,6 +2159,12 @@ def search_knowledge(query: str, max_results: int = 5, category: str = None, hyb
         hybrid_alpha: Balance between semantic and keyword search. 0.0 = keyword-only (best for exact
             technical terms like CVE IDs or tool names), 0.3 = balanced default, 1.0 = semantic-only
             (best for conceptual or natural-language queries).
+        min_score: Minimum normalized relevance score (0.0–1.0) to include a result. Results scoring
+            below this threshold are discarded. Default 0.0 returns all results. Use 0.2–0.4 to cut
+            low-relevance noise.
+        snippet_mode: When true (default), truncates content to ~500 characters at a natural break
+            point and adds a content_length field with the original size. Use get_document() to
+            fetch full content when needed. Set to false to return full chunk content.
 
     Returns:
         JSON string with results including content chunks, source filepath, relevance score, and
@@ -2052,6 +2179,7 @@ def search_knowledge(query: str, max_results: int = 5, category: str = None, hyb
 
     max_results = max(1, min(max_results or 5, config.max_results))
     hybrid_alpha = max(0.0, min(hybrid_alpha if hybrid_alpha is not None else 0.3, 1.0))
+    min_score = max(0.0, min(min_score if min_score is not None else 0.0, 1.0))
 
     valid_categories = list(config.keyword_routes.keys()) + list(set(config.category_mappings.values()))
     if category and category not in valid_categories:
@@ -2067,12 +2195,23 @@ def search_knowledge(query: str, max_results: int = 5, category: str = None, hyb
     if not results:
         return json.dumps({"status": "no_results", "query": query, "message": "No relevant documents found."})
 
+    total_before_filter = len(results)
+    if min_score > 0.0:
+        results = [r for r in results if r.get("score", 0) >= min_score]
+
+    if snippet_mode:
+        for r in results:
+            full_len = len(r.get("content", ""))
+            r["content"] = _make_snippet(r["content"])
+            r["content_length"] = full_len
+
     return json.dumps(
         {
             "status": "success",
             "query": query,
             "hybrid_alpha": hybrid_alpha,
             "result_count": len(results),
+            "filtered_by_score": total_before_filter - len(results),
             "cache_hit_rate": orchestrator.query_cache.stats()["hit_rate"],
             "results": results,
         },
