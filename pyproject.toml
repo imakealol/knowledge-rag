@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "knowledge-rag"
-version = "4.2.0"
-description = "Local RAG System for Claude Code — Hybrid search + Cross-encoder Reranking + 12 MCP Tools + 20 Format Parsers. Zero external servers."
+version = "4.3.0"
+description = "Local RAG System for Claude Code — Hybrid search + Cross-encoder Reranking + 13 MCP Tools + 20 Format Parsers. Zero external servers."
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
@@ -44,7 +44,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu = ["onnxruntime-gpu>=1.14.0"]
+gpu = [
+    "onnxruntime-gpu>=1.14.0",
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cufft-cu12",
+    "nvidia-cusparse-cu12",
+    "nvidia-cusolver-cu12",
+    "nvidia-curand-cu12",
+    "nvidia-nvjitlink-cu12",
+]
 server = ["uvicorn>=0.20.0"]
 
 [project.urls]

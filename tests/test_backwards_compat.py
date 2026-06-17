@@ -78,6 +78,7 @@ MCP_TOOL_SIGNATURES = {
     "list_categories": [],
     "list_documents": ["category"],
     "get_index_stats": [],
+    "get_reindex_status": [],
     "evaluate_retrieval": ["test_cases"],
 }
 

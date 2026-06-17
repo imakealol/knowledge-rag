@@ -986,6 +986,9 @@ class KnowledgeOrchestrator:
         # Migration: deferred — checked in main() after full init
         self._needs_rebuild = False
 
+        # Background reindex progress (polled via get_index_stats)
+        self._reindex_progress: Dict[str, Any] = {"active": False}
+
     def _safe_get_collection(self):
         """
         Get or create ChromaDB collection with auto-recovery.
@@ -1134,6 +1137,7 @@ class KnowledgeOrchestrator:
 
         documents = self.parser.parse_directory()
         stats["total_files"] = len(documents)
+        self._reindex_progress["total_files"] = stats["total_files"]
         if stats["total_files"] > 100:
             print(f"[INDEX] Scanning {stats['total_files']} documents...")
 
@@ -1226,6 +1230,13 @@ class KnowledgeOrchestrator:
                 stats["errors"] += 1
                 print(f"[ERROR] Failed to index {doc.source}: {e}")
 
+            self._reindex_progress.update({
+                "processed": idx + 1,
+                "indexed": stats["indexed"],
+                "skipped": stats["skipped"],
+                "errors": stats["errors"],
+            })
+
             if stats["total_files"] > 100 and (idx + 1) % _progress_interval == 0:
                 pct = int((idx + 1) / stats["total_files"] * 100)
                 print(
@@ -1307,6 +1318,43 @@ class KnowledgeOrchestrator:
             print(f"[WARN] Failed to remove chunks for doc {doc_id}: {e}")
 
         return 0
+
+    def start_reindex_background(self, mode: str) -> Dict[str, Any]:
+        """Start reindex in a background thread. Returns immediately."""
+        if self._reindex_progress.get("active"):
+            return {"status": "already_running", "progress": dict(self._reindex_progress)}
+
+        self._reindex_progress = {
+            "active": True,
+            "operation": mode,
+            "total_files": 0,
+            "processed": 0,
+            "indexed": 0,
+            "skipped": 0,
+            "errors": 0,
+            "started_at": datetime.now().isoformat(),
+        }
+
+        target = {
+            "incremental": lambda: self.index_all(force=False),
+            "smart_reindex": self.reindex_all,
+            "nuclear_rebuild": self.nuclear_rebuild,
+        }[mode]
+
+        thread = threading.Thread(target=self._run_reindex, args=(target,), daemon=True)
+        thread.start()
+        return {"status": "started", "operation": mode}
+
+    def _run_reindex(self, target: Any) -> None:
+        """Background thread runner for reindex operations."""
+        try:
+            result = target()
+            self._reindex_progress["result"] = result
+        except Exception as e:
+            self._reindex_progress["error"] = str(e)
+            print(f"[ERROR] Background reindex failed: {e}")
+        finally:
+            self._reindex_progress["active"] = False
 
     def reindex_all(self) -> Dict[str, Any]:
         """Smart reindex: incremental detection + BM25 rebuild + orphan cleanup."""
@@ -2043,8 +2091,8 @@ class KnowledgeOrchestrator:
         return docs
 
     def get_stats(self) -> Dict[str, Any]:
-        """Get index statistics"""
-        return {
+        """Get index statistics including background reindex progress."""
+        stats = {
             "total_documents": len(self._indexed_docs),
             "total_chunks": self.collection.count(),
             "categories": self.list_categories(),
@@ -2056,6 +2104,48 @@ class KnowledgeOrchestrator:
             "chunk_overlap": config.chunk_overlap,
             "query_cache": self.query_cache.stats(),
         }
+
+        progress = self._reindex_progress
+        if progress.get("active"):
+            total = max(1, progress.get("total_files", 1))
+            processed = progress.get("processed", 0)
+            stats["reindex"] = {
+                "active": True,
+                "operation": progress.get("operation"),
+                "progress": f"{processed}/{progress.get('total_files', 0)}",
+                "percent": round(processed / total * 100),
+                "indexed": progress.get("indexed", 0),
+                "errors": progress.get("errors", 0),
+                "started_at": progress.get("started_at"),
+            }
+        else:
+            stats["reindex"] = {"active": False}
+
+        return stats
+
+    def get_reindex_status(self) -> Dict[str, Any]:
+        """Get background reindex progress without computing full index stats."""
+        progress = self._reindex_progress
+        if progress.get("active"):
+            total = max(1, progress.get("total_files", 1))
+            processed = progress.get("processed", 0)
+            return {
+                "active": True,
+                "operation": progress.get("operation"),
+                "progress": f"{processed}/{progress.get('total_files', 0)}",
+                "percent": round(processed / total * 100),
+                "indexed": progress.get("indexed", 0),
+                "skipped": progress.get("skipped", 0),
+                "errors": progress.get("errors", 0),
+                "started_at": progress.get("started_at"),
+            }
+
+        result: Dict[str, Any] = {"active": False}
+        if "result" in progress:
+            result["last_result"] = progress["result"]
+        if "error" in progress:
+            result["last_error"] = progress["error"]
+        return result
 
     def _load_metadata(self) -> Dict[str, Dict]:
         """Load index metadata from disk"""
@@ -2258,16 +2348,17 @@ def reindex_documents(force: bool = False, full_rebuild: bool = False) -> str:
     """
     Index or reindex all documents in the knowledge base.
 
-    Mutating — modifies the vector index. CPU/IO intensive for full_rebuild (~6 min for 200 docs).
+    Runs in background — returns immediately. Use get_reindex_status() to monitor progress.
 
     Args:
-        force: If True, smart reindex (detects changed files + rebuilds BM25 index). Fast (~5s
-            for 200 docs). Use after manually editing files on disk outside of add_document().
+        force: If True, smart reindex (detects changed files + rebuilds BM25 index).
+            Use after manually editing files on disk outside of add_document().
         full_rebuild: If True, nuclear rebuild — deletes all vectors and re-embeds everything
             from scratch. Use only if the embedding model changed or the index is corrupted.
 
     Returns:
-        JSON string with indexing statistics (docs processed, added, skipped, errors).
+        JSON string with operation status. Poll get_reindex_status() for reindex.active,
+        reindex.progress, and reindex.percent until reindex.active becomes false.
 
     Usage: Normal workflow does not require this — add_document(), update_document(), and
     add_from_url() all auto-index on call. Use force=True only after direct filesystem edits.
@@ -2277,16 +2368,51 @@ def reindex_documents(force: bool = False, full_rebuild: bool = False) -> str:
     orchestrator = get_orchestrator()
 
     if full_rebuild:
-        stats = orchestrator.nuclear_rebuild()
-        operation = "nuclear_rebuild"
+        mode = "nuclear_rebuild"
     elif force:
-        stats = orchestrator.reindex_all()
-        operation = "smart_reindex"
+        mode = "smart_reindex"
     else:
-        stats = orchestrator.index_all()
-        operation = "incremental_index"
+        mode = "incremental"
 
-    return json.dumps({"status": "success", "operation": operation, "stats": stats}, indent=2, ensure_ascii=False)
+    result = orchestrator.start_reindex_background(mode)
+
+    if result["status"] == "already_running":
+        progress = result["progress"]
+        return json.dumps({
+            "status": "already_running",
+            "progress": f"{progress.get('processed', 0)}/{progress.get('total_files', 0)}",
+            "operation": progress.get("operation"),
+            "hint": "Use get_reindex_status() to check progress",
+        }, indent=2, ensure_ascii=False)
+
+    return json.dumps({
+        "status": "started",
+        "operation": mode,
+        "message": "Reindex running in background. Use get_reindex_status() to monitor progress.",
+    }, indent=2, ensure_ascii=False)
+
+
+@mcp.tool()
+@rate_limited
+@instrument("get_reindex_status")
+def get_reindex_status() -> str:
+    """
+    Get the current status of a background reindex operation.
+
+    Lightweight — does not compute full index statistics. Use this to poll progress
+    after calling reindex_documents().
+
+    Returns:
+        JSON string with reindex status. When active: operation name, progress (processed/total),
+        percent complete, indexed/skipped/errors counts, and start time. When inactive: active=false,
+        plus last_result or last_error from the most recent completed reindex.
+
+    Usage: Call repeatedly after reindex_documents() to monitor progress. When reindex.active
+    becomes false, the operation is complete. Use get_index_stats() for full index health metrics.
+    """
+    orchestrator = get_orchestrator()
+    status = orchestrator.get_reindex_status()
+    return json.dumps({"status": "success", "reindex": status}, indent=2)
 
 
 @mcp.tool()

@@ -17,7 +17,7 @@
 ### Your docs, your machine, zero cloud. Claude Code searches them natively.
 
 Drop your PDFs, markdown, code, notebooks — **1800+ files, 39K chunks, indexed in under 3 minutes.**<br/>
-Hybrid search (BM25 + semantic vectors + cross-encoder reranking) through 12 MCP tools.<br/>
+Hybrid search (BM25 + semantic vectors + cross-encoder reranking) through 13 MCP tools.<br/>
 Everything runs locally via ONNX. No Docker, no Ollama, no API keys, no data leaves your machine.
 
 ```
@@ -26,7 +26,7 @@ pip install knowledge-rag → restart Claude Code → search_knowledge("your que
 
 ---
 
-**12 MCP Tools** | **Hybrid Search + Reranking** | **20 File Formats** | **Optional NVIDIA GPU** | **100% Local**
+**13 MCP Tools** | **Hybrid Search + Reranking** | **20 File Formats** | **Optional NVIDIA GPU** | **100% Local**
 
 [What's New](#whats-new-in-v420) | [Supported Formats](#supported-formats) | [Installation](#installation) | [Configuration](#configuration) | [API Reference](#api-reference) | [Architecture](#architecture)
 
@@ -81,7 +81,7 @@ Or via CLI: `knowledge-rag --transport sse`
 - **Prometheus metrics**: `/metrics` endpoint on separate port
 - **Bearer auth**: Token validation for SSE/HTTP connections
 
-All 12 MCP tools are instrumented with `@rate_limited` and `@instrument` decorators — zero overhead when features are disabled. Default transport remains **stdio** for full backwards compatibility.
+All 13 MCP tools are instrumented with `@rate_limited` and `@instrument` decorators — zero overhead when features are disabled. Default transport remains **stdio** for full backwards compatibility.
 
 > **Migration**: Existing users need zero changes. SSE mode is opt-in via `server.transport: "sse"` in config.yaml. See [Configuration](#configuration) for details.
 
@@ -205,7 +205,7 @@ See [Changelog](#changelog) for full history.
 | **MMR Diversification** | Maximal Marginal Relevance reduces redundant results |
 | **Persistent Model Cache** | Embedding models cached in `models_cache/` — survives reboots |
 | **Auto-Migration** | Detects embedding dimension mismatch and rebuilds automatically |
-| **12 MCP Tools** | Full CRUD + search + evaluation via Claude Code |
+| **13 MCP Tools** | Full CRUD + search + evaluation via Claude Code |
 
 ---
 
@@ -217,7 +217,7 @@ See [Changelog](#changelog) for full history.
 flowchart TB
     subgraph MCP["MCP SERVER (FastMCP)"]
         direction TB
-        TOOLS["12 MCP Tools<br/>search | get | add | update | remove<br/>reindex | list | stats | url | similar | evaluate"]
+        TOOLS["13 MCP Tools<br/>search | get | add | update | remove<br/>reindex | reindex_status | list | stats | url | similar | evaluate"]
     end
 
     subgraph SEARCH["HYBRID SEARCH ENGINE"]
@@ -392,7 +392,53 @@ flowchart LR
 - Claude Code CLI
 - *…or any other MCP client (Claude Desktop, Cursor, VS Code, Antigravity, opencode, Windsurf) — see [Use with other MCP clients](#use-with-other-mcp-clients)*
 - ~200MB disk for model cache (auto-downloaded on first run)
-- *Optional:* NVIDIA GPU + CUDA for accelerated embeddings (`pip install knowledge-rag[gpu]` + `models.embedding.gpu: true` in config)
+- *Optional:* NVIDIA GPU + CUDA 12 for accelerated embeddings (see [GPU Acceleration](#gpu-acceleration) below)
+
+### GPU Acceleration
+
+GPU mode accelerates embedding generation during indexing and search. It requires an NVIDIA GPU with CUDA 12 support. No GPU? No problem — the server runs on CPU by default and GPU is entirely optional.
+
+**Requirements:**
+
+| Component | Minimum | How to check / get it |
+|-----------|---------|----------------------|
+| NVIDIA GPU (Turing+) | RTX 20xx / 30xx / 40xx / 50xx, or Tesla T4+ | `nvidia-smi` |
+| NVIDIA Driver | ≥ 525 | `nvidia-smi` — [nvidia.com/drivers](https://www.nvidia.com/drivers) |
+| CUDA 12 runtime | Provided by pip packages below | Automatic |
+
+**Setup (2 steps):**
+
+```bash
+# 1. Install GPU dependencies (onnxruntime-gpu + all CUDA 12 runtime DLLs)
+pip install knowledge-rag[gpu]
+
+# 2. Enable in config.yaml
+# models:
+#   embedding:
+#     gpu: true
+```
+
+The `[gpu]` extra installs `onnxruntime-gpu` plus 7 NVIDIA CUDA 12 packages (`cublas`, `cudnn`, `cuda-runtime`, `cufft`, `cusparse`, `cusolver`, `curand`, `nvjitlink`) so you don't need a full CUDA Toolkit install.
+
+**Verify GPU is active:**
+
+On server startup, look for the GPU status banner:
+```
+============================================================
+  GPU STATUS: ACTIVE
+  Provider:   CUDAExecutionProvider
+  Device:     NVIDIA GeForce RTX 3080 Ti
+  VRAM:       12.0 GB
+============================================================
+```
+
+Or programmatically:
+```bash
+python -c "import onnxruntime; print(onnxruntime.get_available_providers())"
+# Should include: 'CUDAExecutionProvider'
+```
+
+> **Fallback**: If CUDA is unavailable at runtime (wrong driver, missing DLLs, no GPU), the server falls back to CPU automatically with a `[WARN]` log — it never crashes. The `gpu: true` config is a preference, not a requirement.
 
 ### Install Methods
 
@@ -663,7 +709,7 @@ search_knowledge("lateral movement strategies", hybrid_alpha=1.0)
 
 ### Indexing
 
-Documents are automatically indexed on first startup. To manage the index:
+Documents are automatically indexed on first startup. All reindex operations run **in background** — they return immediately and you poll progress via `get_reindex_status()`:
 
 ```python
 # Incremental: only re-index changed files (fast)
@@ -674,6 +720,10 @@ reindex_documents(force=True)
 
 # Nuclear rebuild: delete everything, re-embed all (use after model change)
 reindex_documents(full_rebuild=True)
+
+# Poll progress (lightweight, no full stats computation)
+get_reindex_status()
+# → {"reindex": {"active": true, "percent": 56, "progress": "2090/3734", ...}}
 ```
 
 ### Evaluating Retrieval Quality
@@ -755,14 +805,39 @@ Retrieve the full content of a specific document.
 
 #### `reindex_documents`
 
-Index or reindex all documents in the knowledge base.
+Index or reindex all documents in the knowledge base. **Runs in background** — returns immediately. Poll progress via `get_reindex_status()`.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `force` | bool | false | Smart reindex: detects changes, rebuilds BM25. Fast. |
 | `full_rebuild` | bool | false | Nuclear rebuild: deletes everything, re-embeds all documents. Use after model change. |
 
-**Returns:** JSON with indexing statistics (indexed, updated, skipped, deleted, chunks_added, chunks_removed, dedup_skipped, elapsed_seconds).
+**Returns:** `{"status": "started", "operation": "..."}` immediately. If already running, returns `{"status": "already_running", "progress": "1200/3734"}`.
+
+---
+
+#### `get_reindex_status`
+
+Get the current status of a background reindex operation. Lightweight — does not compute full index statistics.
+
+**Returns (active):**
+```json
+{
+  "status": "success",
+  "reindex": {
+    "active": true,
+    "operation": "nuclear_rebuild",
+    "progress": "1200/3734",
+    "percent": 32,
+    "indexed": 1200,
+    "skipped": 0,
+    "errors": 0,
+    "started_at": "2026-06-17T18:29:49"
+  }
+}
+```
+
+**Returns (idle):** `{"status": "success", "reindex": {"active": false}}`
 
 ---
 
@@ -1071,7 +1146,7 @@ For `.md` files, chunking splits at `##` and `###` header boundaries first. Sect
 |-------|---------|-------------|
 | `models.embedding.model` | `BAAI/bge-small-en-v1.5` | Embedding model (ONNX, runs locally) |
 | `models.embedding.dimensions` | 384 | Vector dimensions (must match model) |
-| `models.embedding.gpu` | false | Enable CUDA GPU acceleration. Requires `pip install knowledge-rag[gpu]` |
+| `models.embedding.gpu` | false | Enable CUDA GPU acceleration. See [GPU Acceleration](#gpu-acceleration) for full setup |
 | `models.reranker.enabled` | true | Enable cross-encoder reranking |
 | `models.reranker.model` | `Xenova/ms-marco-MiniLM-L-6-v2` | Reranker model |
 | `models.reranker.top_k_multiplier` | 3 | Fetch N*multiplier candidates for reranking |
@@ -1331,7 +1406,7 @@ Common issues:
 - **NEW**: ChromaDB WAL mode enabled automatically in SSE/HTTP mode for concurrent read performance.
 - **NEW**: Optional rate limiting — sliding-window counter, configurable RPM and burst, disabled by default.
 - **NEW**: Optional Prometheus metrics endpoint — tool call counts, latency histograms, separate port, disabled by default.
-- **NEW**: All 12 MCP tools instrumented with `@rate_limited` and `@instrument` decorators (zero-cost when disabled).
+- **NEW**: All 13 MCP tools instrumented with `@rate_limited` and `@instrument` decorators (zero-cost when disabled).
 - **NEW**: `--transport` CLI override for Docker/systemd deployments.
 - **NEW**: `pip install knowledge-rag[server]` optional dependency for SSE/HTTP (uvicorn).
 - **CHANGED**: SSE/HTTP mode auto-enables single-instance lock (port collision prevention).
@@ -1390,6 +1465,18 @@ Common issues:
 - **ROADMAP**: Tracked v4.0 shared-service architecture (one daemon, many thin MCP clients) as the long-term fix for multi-process resource duplication. (#34)
 
 ### Unreleased
+
+### v4.3.0 (2026-06-17) — Async Reindex, GPU CUDA 12, 13th MCP Tool
+
+- **NEW**: `get_reindex_status` MCP tool — lightweight reindex progress polling without computing full index stats. Returns active/idle status, percent, processed/total, errors, and last result.
+- **NEW**: `reindex_documents` now runs in background via daemon thread — returns immediately with `{"status": "started"}`. Eliminates MCP timeout on large document sets (5K+ files). Concurrent calls return `already_running` with current progress.
+- **NEW**: GPU acceleration with full CUDA 12 support — `onnxruntime-gpu` + 7 NVIDIA pip packages (`cublas`, `cudnn`, `cuda-runtime`, `cufft`, `cusparse`, `cusolver`, `curand`, `nvjitlink`). Server auto-detects GPU on startup with 4-step verification (providers, DLLs, nvidia-smi, session creation). Falls back to CPU gracefully.
+- **NEW**: `_setup_cuda_dll_paths()` adds NVIDIA pip package DLL directories to `PATH` automatically on Windows — onnxruntime finds CUDA 12 DLLs without a full CUDA Toolkit install.
+- **DEPS**: `[gpu]` extra expanded from 3 to 8 packages (added `cufft`, `cusparse`, `cusolver`, `curand`, `nvjitlink`).
+- **FIX**: GPU status reporting now uses actual ONNX session creation test instead of just checking `get_available_providers()` — prevents false "GPU ACTIVE" when CUDA DLLs are missing.
+- **DOCS**: GPU Acceleration section rewritten with complete requirements table, setup steps, verification instructions, and fallback behavior.
+- **DOCS**: Tool reference updated — `reindex_documents` async behavior documented, `get_reindex_status` reference added.
+- **TEST**: Backwards-compat baseline updated for 13 MCP tools.
 
 ### v4.2.0 (2026-06-17) — Search Performance & Output Quality
 

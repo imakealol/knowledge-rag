@@ -727,6 +727,18 @@
               "is_async": false,
               "returns_annotated": true
             },
+            "get_reindex_status": {
+              "args": [
+                {
+                  "annotated": false,
+                  "has_default": false,
+                  "kind": "positional",
+                  "name": "self"
+                }
+              ],
+              "is_async": false,
+              "returns_annotated": true
+            },
             "get_stats": {
               "args": [
                 {
@@ -890,6 +902,24 @@
                   "has_default": true,
                   "kind": "positional",
                   "name": "max_results"
+                }
+              ],
+              "is_async": false,
+              "returns_annotated": true
+            },
+            "start_reindex_background": {
+              "args": [
+                {
+                  "annotated": false,
+                  "has_default": false,
+                  "kind": "positional",
+                  "name": "self"
+                },
+                {
+                  "annotated": true,
+                  "has_default": false,
+                  "kind": "positional",
+                  "name": "mode"
                 }
               ],
               "is_async": false,
@@ -1108,6 +1138,11 @@
           "returns_annotated": true
         },
         "get_orchestrator": {
+          "args": [],
+          "is_async": false,
+          "returns_annotated": true
+        },
+        "get_reindex_status": {
           "args": [],
           "is_async": false,
           "returns_annotated": true
