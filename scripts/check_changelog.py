@@ -148,18 +148,17 @@ def main() -> int:
             "       or apply the 'skip-changelog' label if truly not needed.\n"
             "       Unreleased: {ucur} (base {ubase}), Versioned: {vcur} (base {vbase})".format(
                 type=commit_type,
-                ucur=unreleased_current, ubase=unreleased_base,
-                vcur=versioned_current, vbase=versioned_base,
+                ucur=unreleased_current,
+                ubase=unreleased_base,
+                vcur=versioned_current,
+                vbase=versioned_base,
             ),
             file=sys.stderr,
         )
         return 1
 
     where = "Unreleased" if unreleased_gained else "versioned heading"
-    print(
-        f"[OK] CHANGELOG updated under {where} "
-        f"(type: {commit_type})"
-    )
+    print(f"[OK] CHANGELOG updated under {where} (type: {commit_type})")
     return 0
 
 

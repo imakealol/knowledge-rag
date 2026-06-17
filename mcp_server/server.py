@@ -1230,12 +1230,14 @@ class KnowledgeOrchestrator:
                 stats["errors"] += 1
                 print(f"[ERROR] Failed to index {doc.source}: {e}")
 
-            self._reindex_progress.update({
-                "processed": idx + 1,
-                "indexed": stats["indexed"],
-                "skipped": stats["skipped"],
-                "errors": stats["errors"],
-            })
+            self._reindex_progress.update(
+                {
+                    "processed": idx + 1,
+                    "indexed": stats["indexed"],
+                    "skipped": stats["skipped"],
+                    "errors": stats["errors"],
+                }
+            )
 
             if stats["total_files"] > 100 and (idx + 1) % _progress_interval == 0:
                 pct = int((idx + 1) / stats["total_files"] * 100)
@@ -2378,18 +2380,26 @@ def reindex_documents(force: bool = False, full_rebuild: bool = False) -> str:
 
     if result["status"] == "already_running":
         progress = result["progress"]
-        return json.dumps({
-            "status": "already_running",
-            "progress": f"{progress.get('processed', 0)}/{progress.get('total_files', 0)}",
-            "operation": progress.get("operation"),
-            "hint": "Use get_reindex_status() to check progress",
-        }, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {
+                "status": "already_running",
+                "progress": f"{progress.get('processed', 0)}/{progress.get('total_files', 0)}",
+                "operation": progress.get("operation"),
+                "hint": "Use get_reindex_status() to check progress",
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
 
-    return json.dumps({
-        "status": "started",
-        "operation": mode,
-        "message": "Reindex running in background. Use get_reindex_status() to monitor progress.",
-    }, indent=2, ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": "started",
+            "operation": mode,
+            "message": "Reindex running in background. Use get_reindex_status() to monitor progress.",
+        },
+        indent=2,
+        ensure_ascii=False,
+    )
 
 
 @mcp.tool()
