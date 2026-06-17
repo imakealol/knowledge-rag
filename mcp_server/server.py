@@ -663,11 +663,12 @@ class BM25Index:
 
     def expand_query(self, query: str) -> str:
         """
-        Expand query with security-term synonyms for BM25 search.
+        Expand query with configured synonyms for BM25 search.
 
-        Looks up query tokens against config.query_expansions and appends
-        synonym tokens. Improves recall for abbreviated technical terms
-        (e.g., "sqli" expands to include "sql injection").
+        Looks up full-query, token, and bigram matches against the merged
+        expansion table from config. Improves keyword recall for abbreviated
+        and synonymous technical terms (e.g., "sqli" expands to include
+        "sql injection").
 
         Args:
             query: Original query string
@@ -676,23 +677,39 @@ class BM25Index:
             Expanded query string with synonyms appended
         """
         query_lower = query.lower().strip()
-        expanded_terms = set()
+        expansions = config.query_expansions
+        expanded_terms: List[str] = []
+        seen_terms = set()
+        seen_add = seen_terms.add
+        expanded_append = expanded_terms.append
 
         # Check full query
-        if query_lower in config.query_expansions:
-            expanded_terms.update(config.query_expansions[query_lower])
+        full_query_terms = expansions.get(query_lower)
+        if full_query_terms:
+            for term in full_query_terms:
+                if term not in seen_terms:
+                    seen_add(term)
+                    expanded_append(term)
 
         # Check individual tokens
         tokens = self._tokenize(query_lower)
         for token in tokens:
-            if token in config.query_expansions:
-                expanded_terms.update(config.query_expansions[token])
+            token_terms = expansions.get(token)
+            if token_terms:
+                for term in token_terms:
+                    if term not in seen_terms:
+                        seen_add(term)
+                        expanded_append(term)
 
         # Check bigrams
         for i in range(len(tokens) - 1):
             bigram = f"{tokens[i]} {tokens[i + 1]}"
-            if bigram in config.query_expansions:
-                expanded_terms.update(config.query_expansions[bigram])
+            bigram_terms = expansions.get(bigram)
+            if bigram_terms:
+                for term in bigram_terms:
+                    if term not in seen_terms:
+                        seen_add(term)
+                        expanded_append(term)
 
         if expanded_terms:
             return query_lower + " " + " ".join(expanded_terms)
