@@ -836,7 +836,8 @@ class DocumentWatcher(FileSystemEventHandler):
                     f"{stats['updated']} updated, {stats['deleted']} deleted"
                 )
         except Exception as e:
-            print(f"[WATCHER] Reindex failed: {e}")
+            import traceback as _tb
+            print(f"[WATCHER] Reindex failed: {e}\n{_tb.format_exc()}")
         finally:
             self._reindex_lock.release()
 
@@ -1986,7 +1987,8 @@ class KnowledgeOrchestrator:
     def _save_metadata(self) -> None:
         """Save index metadata to disk"""
         self._metadata_file.parent.mkdir(parents=True, exist_ok=True)
-        self._metadata_file.write_text(json.dumps(self._indexed_docs, indent=2, ensure_ascii=False), encoding="utf-8")
+        snapshot = dict(self._indexed_docs)
+        self._metadata_file.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 # =============================================================================
@@ -2445,7 +2447,6 @@ def evaluate_retrieval(test_cases: str) -> str:
 
     orchestrator = get_orchestrator()
     results = orchestrator.evaluate_retrieval(cases)
-
     return json.dumps({"status": "success", **results}, indent=2)
 
 
