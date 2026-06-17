@@ -837,6 +837,7 @@ class DocumentWatcher(FileSystemEventHandler):
                 )
         except Exception as e:
             import traceback as _tb
+
             print(f"[WATCHER] Reindex failed: {e}\n{_tb.format_exc()}")
         finally:
             self._reindex_lock.release()
