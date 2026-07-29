@@ -3,6 +3,8 @@ name: Security
 on:
   push:
     branches: [master]
+    paths-ignore:
+      - 'docs/**'
   schedule:
     - cron: "0 6 * * 1"
 
