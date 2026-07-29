@@ -40,12 +40,10 @@ pip install knowledge-rag → restart Claude Code → search_knowledge("your que
 <div align="center">
 
 <a href="https://www.star-history.com/?repos=lyonzin%2Fknowledge-rag&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lyonzin/knowledge-rag&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lyonzin/knowledge-rag&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lyonzin/knowledge-rag&type=date&legend=top-left" />
- </picture>
+  <img alt="Star History Chart" src="./docs/star-history.svg" width="720" />
 </a>
+
+<sub>Chart updated daily by <a href="./.github/workflows/update-star-history.yml">GitHub Action</a></sub>
 
 </div>
 
