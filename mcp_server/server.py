@@ -1216,22 +1216,37 @@ class KnowledgeOrchestrator:
     def _check_dimension_mismatch(self) -> bool:
         """Check if stored embeddings have different dimension than current config.
 
-        Uses a test query to detect dimension mismatch (more reliable than
-        reading stored embeddings which may not be available in all ChromaDB backends).
+        Prefers cached metadata (``self._indexed_docs[*]["embedding_dim"]``) to
+        avoid triggering an embed on cold start — the previous behavior fired
+        ``collection.query(query_texts=[...])`` which force-loads the model
+        (bge-small ~1s CPU, but with GPU probe + CUDA init on v4.8.0 easily
+        pushes the MCP handshake past its 30s timeout). Falls back to the
+        query path only for legacy chunks indexed before this field existed;
+        those chunks get ``embedding_dim`` backfilled on their next re-index.
         """
         if self.collection.count() == 0:
             return False
+        # Fast path: check cached metadata (no embed, no model load)
+        for entry in self._indexed_docs.values():
+            cached_dim = entry.get("embedding_dim")
+            if cached_dim is not None:
+                if cached_dim != config.embedding_dim:
+                    print(
+                        f"[MIGRATION] Embedding dim mismatch (cached): "
+                        f"stored={cached_dim} config={config.embedding_dim}"
+                    )
+                    print("[MIGRATION] Nuclear rebuild required.")
+                    return True
+                return False  # first cached hit is authoritative
+        # Legacy fallback: no cached dim → query the collection (embeds once)
         try:
-            # Attempt a real query — ChromaDB will throw if dimensions don't match
             self.collection.query(query_texts=["dimension check"], n_results=1, include=["documents"])
-            return False  # Query succeeded, dimensions match
+            return False
         except Exception as e:
-            error_msg = str(e).lower()
-            if "dimension" in error_msg:
+            if "dimension" in str(e).lower():
                 print(f"[MIGRATION] Embedding dimension mismatch detected: {e}")
                 print("[MIGRATION] Nuclear rebuild required.")
                 return True
-            # Other error — don't trigger rebuild
             print(f"[WARN] Dimension check query failed (non-dimension error): {e}")
             return False
 
@@ -1544,6 +1559,7 @@ class KnowledgeOrchestrator:
             "indexed_at": datetime.now().isoformat(),
             "file_mtime": file_mtime,
             "file_size": file_size,
+            "embedding_dim": config.embedding_dim,  # avoids cold-start embed in _check_dimension_mismatch
         }
         self._source_to_docid[str(doc.source.resolve())] = doc.id
 
@@ -2738,6 +2754,7 @@ class KnowledgeOrchestrator:
             "indexed_at": datetime.now().isoformat(),
             "file_mtime": file_mtime,
             "file_size": file_size,
+            "embedding_dim": config.embedding_dim,
         }
         self._source_to_docid[str(full_path.resolve())] = doc.id
         self._save_metadata()
@@ -2802,6 +2819,7 @@ class KnowledgeOrchestrator:
             "indexed_at": datetime.now().isoformat(),
             "file_mtime": file_mtime,
             "file_size": file_size,
+            "embedding_dim": config.embedding_dim,
         }
         self._source_to_docid[str(filepath.resolve())] = doc.id
         self._save_metadata()
