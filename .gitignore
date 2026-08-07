@@ -72,3 +72,10 @@ dist/
 # types.SimpleNamespace when mocking config in tests.
 MagicMock/
 .benchmarks/
+
+# Compozy workflow artifacts (meta-workflow, local-only)
+.compozy/
+
+# Runtime knowledge-rag daemon startup logs
+startup.err
+startup.log
