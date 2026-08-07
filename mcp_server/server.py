@@ -420,49 +420,61 @@ class FastEmbedEmbeddings:
     def _print_gpu_banner(status: Optional[GPUStatus], mode: str) -> None:
         """Print a concise GPU diagnostic banner at startup.
 
-        Called on EVERY startup path (v4.8.0+), including CPU-only and fallback,
-        so operators always see which mode ran and why.
+        Called on EVERY startup path (v4.8.0+), including CPU-only and
+        fallback, so operators always see which mode ran and why. Prints
+        to stderr (print() is redirected there during init).
 
-        Args:
-            status: probe result. None when gpu_mode="false" (no probe performed).
-            mode: one of "forced-cpu" | "forced-cuda" | "forced-cuda-fallback"
-                  | "auto-cuda" | "auto-cpu-fallback".
-
-        Prints to stderr (print() is redirected there during init).
+        ``status`` is None when gpu_mode="false" (no probe performed).
+        ``mode`` is one of forced-cpu | forced-cuda | forced-cuda-fallback
+        | auto-cuda | auto-cpu-fallback.
         """
         active = status is not None and status.available and mode in ("auto-cuda", "forced-cuda")
         print("")
         print("=" * 60)
         if active:
-            print("  GPU STATUS: ACTIVE")
-            print(f"  Provider:   {status.provider}")
-            if status.device_name:
-                print(f"  Device:     {status.device_name}")
-            if status.vram_mb > 0:
-                vram_display = f"{status.vram_mb / 1024:.1f} GB" if status.vram_mb >= 1024 else f"{status.vram_mb} MB"
-                print(f"  VRAM:       {vram_display}")
-            print(f"  Mode:       {mode}")
+            FastEmbedEmbeddings._print_gpu_active(status, mode)
         else:
-            print("  GPU STATUS: UNAVAILABLE — running on CPU")
-            if status is not None and status.fallback_reason:
-                print(f"  Reason:     {status.fallback_reason}")
-            if status is not None and status.missing_deps:
-                print("  Missing:")
-                for dep in status.missing_deps:
-                    print(f"    - {dep}")
-            print(f"  Mode:       {mode}")
-            if mode != "forced-cpu":
-                print("  Hint:       pip install onnxruntime-gpu --extra-index-url \\")
-                print(
-                    "              https://aiinfra.pkgs.visualstudio.com/PublicPackages"
-                    "/_packaging/onnxruntime-cuda-12/pypi/simple/"
-                )
-                print(
-                    "              plus nvidia-cudnn-cu12, nvidia-cublas-cu12, "
-                    "nvidia-cuda-runtime-cu12"
-                )
+            FastEmbedEmbeddings._print_gpu_unavailable(status, mode)
         print("=" * 60)
         print("")
+
+    @staticmethod
+    def _print_gpu_active(status: GPUStatus, mode: str) -> None:
+        """Emit the ACTIVE branch of the GPU banner (probe passed + provider used)."""
+        print("  GPU STATUS: ACTIVE")
+        print(f"  Provider:   {status.provider}")
+        if status.device_name:
+            print(f"  Device:     {status.device_name}")
+        if status.vram_mb > 0:
+            vram_display = (
+                f"{status.vram_mb / 1024:.1f} GB"
+                if status.vram_mb >= 1024
+                else f"{status.vram_mb} MB"
+            )
+            print(f"  VRAM:       {vram_display}")
+        print(f"  Mode:       {mode}")
+
+    @staticmethod
+    def _print_gpu_unavailable(status: Optional[GPUStatus], mode: str) -> None:
+        """Emit the UNAVAILABLE branch (forced CPU, probe failed, or load fallback)."""
+        print("  GPU STATUS: UNAVAILABLE — running on CPU")
+        if status is not None and status.fallback_reason:
+            print(f"  Reason:     {status.fallback_reason}")
+        if status is not None and status.missing_deps:
+            print("  Missing:")
+            for dep in status.missing_deps:
+                print(f"    - {dep}")
+        print(f"  Mode:       {mode}")
+        if mode != "forced-cpu":
+            print("  Hint:       pip install onnxruntime-gpu --extra-index-url \\")
+            print(
+                "              https://aiinfra.pkgs.visualstudio.com/PublicPackages"
+                "/_packaging/onnxruntime-cuda-12/pypi/simple/"
+            )
+            print(
+                "              plus nvidia-cudnn-cu12, nvidia-cublas-cu12, "
+                "nvidia-cuda-runtime-cu12"
+            )
 
     def __init__(self, model: str = None):
         self.model_name = model or config.embedding_model
@@ -516,25 +528,35 @@ class FastEmbedEmbeddings:
         """Route model load per gpu_mode. Called under _load_lock by _load_model."""
         mode = self._gpu_mode
         if mode == "false":
-            self._load_with_providers(["CPUExecutionProvider"], label="CPU")
-            self._print_gpu_banner(status=None, mode="forced-cpu")
-            return
-        if mode == "auto":
-            self._setup_cuda_dll_paths()
-            gpu_status = self.verify_gpu_readiness()
-            if gpu_status.available:
-                try:
-                    self._load_with_providers(
-                        ["CUDAExecutionProvider", "CPUExecutionProvider"], label="GPU auto"
-                    )
-                    self._print_gpu_banner(status=gpu_status, mode="auto-cuda")
-                    return
-                except (ValueError, RuntimeError) as e:
-                    print(f"[WARN] GPU probe passed but load failed ({e}); loading on CPU...")
-            self._load_with_providers(["CPUExecutionProvider"], label="CPU fallback")
-            self._print_gpu_banner(status=gpu_status, mode="auto-cpu-fallback")
-            return
-        # mode == "true" — force CUDA
+            self._load_forced_cpu()
+        elif mode == "auto":
+            self._load_auto()
+        else:
+            self._load_forced_cuda()
+
+    def _load_forced_cpu(self) -> None:
+        """gpu_mode='false' path — CPU only, no CUDA probing."""
+        self._load_with_providers(["CPUExecutionProvider"], label="CPU")
+        self._print_gpu_banner(status=None, mode="forced-cpu")
+
+    def _load_auto(self) -> None:
+        """gpu_mode='auto' path — probe GPU, use it if ready else CPU fallback."""
+        self._setup_cuda_dll_paths()
+        gpu_status = self.verify_gpu_readiness()
+        if gpu_status.available:
+            try:
+                self._load_with_providers(
+                    ["CUDAExecutionProvider", "CPUExecutionProvider"], label="GPU auto"
+                )
+                self._print_gpu_banner(status=gpu_status, mode="auto-cuda")
+                return
+            except (ValueError, RuntimeError) as e:
+                print(f"[WARN] GPU probe passed but load failed ({e}); loading on CPU...")
+        self._load_with_providers(["CPUExecutionProvider"], label="CPU fallback")
+        self._print_gpu_banner(status=gpu_status, mode="auto-cpu-fallback")
+
+    def _load_forced_cuda(self) -> None:
+        """gpu_mode='true' path — require CUDA, CPU only as last-resort fallback."""
         self._setup_cuda_dll_paths()
         gpu_status = self.verify_gpu_readiness()
         if gpu_status.available:
@@ -1094,6 +1116,11 @@ class DocumentWatcher(FileSystemEventHandler):
 # =============================================================================
 
 
+# Sentinel returned by _resolve_existing_or_skip to signal "skip this doc" —
+# distinguishes from ``None`` (no existing doc yet, index as fresh).
+_SKIP_DOC = object()
+
+
 class KnowledgeOrchestrator:
     """Main orchestrator for knowledge retrieval with semantic search + keyword routing"""
 
@@ -1313,7 +1340,28 @@ class KnowledgeOrchestrator:
         resume_state: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Inner implementation of index_all (caller holds _index_lock)."""
-        stats = {
+        stats = self._init_index_stats()
+        documents = self._scan_and_count_documents(stats)
+        path_to_docid = self._build_path_to_docid_map()
+        self._prune_orphan_documents(documents, stats)
+
+        tracking = self._init_reindex_tracking(resume_state, stats)
+        _progress_interval = max(1, stats["total_files"] // 10)
+
+        for idx, doc in enumerate(documents):
+            self._process_one_document(
+                idx, doc, force, path_to_docid, stats, tracking
+            )
+            self._update_progress_metrics(idx, stats, tracking)
+            self._maybe_persist_checkpoint(idx, tracking)
+            self._maybe_print_progress(idx, stats, _progress_interval)
+
+        return self._finalize_reindex(stats, tracking)
+
+    @staticmethod
+    def _init_index_stats() -> Dict[str, Any]:
+        """Fresh zeroed stats dict for a reindex run."""
+        return {
             "total_files": 0,
             "indexed": 0,
             "updated": 0,
@@ -1326,20 +1374,30 @@ class KnowledgeOrchestrator:
             "categories": {},
         }
 
+    def _scan_and_count_documents(self, stats: Dict[str, Any]) -> list:
+        """Parse docs directory, publish total to progress, print if large."""
         documents = self.parser.parse_directory()
         stats["total_files"] = len(documents)
         self._reindex_progress["total_files"] = stats["total_files"]
         if stats["total_files"] > 100:
             print(f"[INDEX] Scanning {stats['total_files']} documents...")
+        return documents
 
+    def _build_path_to_docid_map(self) -> Dict[str, str]:
+        """Reverse index: source path → doc_id from currently indexed docs."""
         path_to_docid: Dict[str, str] = {}
         for doc_id, info in list(self._indexed_docs.items()):
             path_to_docid[info.get("source", "")] = doc_id
+        return path_to_docid
 
+    def _prune_orphan_documents(self, documents, stats: Dict[str, Any]) -> None:
+        """Delete indexed docs whose source path no longer exists (fixes #90).
+
+        Done BEFORE indexing so moved files are not blocked by stale content
+        hashes. Mutates ``stats`` (chunks_removed, deleted) and evicts from
+        both ``_indexed_docs`` and ``_source_to_docid``.
+        """
         current_paths = {str(doc.source) for doc in documents}
-
-        # Clean up orphaned docs BEFORE indexing so that moved files
-        # are not blocked by stale content hashes (fixes #90).
         orphan_ids = []
         for doc_id, info in list(self._indexed_docs.items()):
             if info.get("source", "") not in current_paths:
@@ -1354,199 +1412,285 @@ class KnowledgeOrchestrator:
                 self._source_to_docid.pop(str(Path(src).resolve()), None)
             del self._indexed_docs[doc_id]
 
-        _progress_interval = max(1, stats["total_files"] // 10)
-
-        # v4.8.0 Fase 4: checkpoint enabled only for smart_reindex — the
-        # nuclear rebuild throws the whole collection away, so resuming
-        # from a partial state is meaningless there.
-        _op_mode = self._reindex_progress.get("operation")
-        _checkpoint_enabled = _op_mode == "smart_reindex"
-        _last_checkpoint_ts = time.monotonic()
-
-        # v4.8.0 Fase 4: chunk-level progress + throughput sliding window
-        # (deque bounded to 100 samples; older-than-30s pruned each iteration).
-        # When resuming, chunks_processed inherits from the checkpoint so the
-        # status counter continues instead of restarting from zero.
-        _resume_doc_ids: set = (
+    def _init_reindex_tracking(
+        self, resume_state: Optional[Dict[str, Any]], stats: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build the mutable per-run tracking dict (checkpoint + throughput + resume)."""
+        op_mode = self._reindex_progress.get("operation")
+        resume_ids: set = (
             set(resume_state.get("doc_ids", [])) if resume_state else set()
         )
         chunks_processed = (
             int(resume_state.get("chunks_processed", 0)) if resume_state else 0
         )
-        _throughput_window: deque = deque(maxlen=100)
-        # Warm-start chunks_total estimate from previously indexed docs so the
-        # first status poll has a meaningful number instead of 0 forever.
-        # Refined per-doc below using the running average.
+        chunks_total_estimate = self._seed_chunks_total_estimate(stats)
+
+        return {
+            "op_mode": op_mode,
+            "checkpoint_enabled": op_mode == "smart_reindex",
+            "last_checkpoint_ts": time.monotonic(),
+            "resume_doc_ids": resume_ids,
+            "chunks_processed": chunks_processed,
+            "throughput_window": deque(maxlen=100),
+            "chunks_total_estimate": chunks_total_estimate,
+        }
+
+    def _seed_chunks_total_estimate(self, stats: Dict[str, Any]) -> int:
+        """Warm-start estimate so the first status poll is meaningful. Refined per-doc later."""
         if self._indexed_docs:
-            _avg_chunks = sum(
+            avg_chunks = sum(
                 info.get("chunks", 0) for info in self._indexed_docs.values()
             ) / max(len(self._indexed_docs), 1)
-            chunks_total_estimate = int(_avg_chunks * stats["total_files"])
+            chunks_total_estimate = int(avg_chunks * stats["total_files"])
         else:
             chunks_total_estimate = 0
         self._reindex_progress["chunks_total"] = chunks_total_estimate
+        return chunks_total_estimate
 
-        for idx, doc in enumerate(documents):
-            try:
-                # v4.8.0 Fase 4: resume skip — doc was already committed
-                # in the previous interrupted run.
-                if _resume_doc_ids and doc.id in _resume_doc_ids:
-                    stats["skipped"] += 1
-                    continue
+    def _process_one_document(
+        self,
+        idx: int,
+        doc,
+        force: bool,
+        path_to_docid: Dict[str, str],
+        stats: Dict[str, Any],
+        tracking: Dict[str, Any],
+    ) -> None:
+        """Per-doc worker: resume skip / hash check / evict-and-reindex / commit.
 
-                source_str = str(doc.source)
-                existing_doc_id = path_to_docid.get(source_str)
+        Mutates ``stats`` and ``tracking['chunks_processed']``. Errors are
+        caught and logged; the caller keeps iterating.
+        """
+        try:
+            existing_doc_id = self._resolve_existing_or_skip(
+                doc, force, path_to_docid, stats, tracking
+            )
+            if existing_doc_id is _SKIP_DOC:
+                return
 
-                if not force and existing_doc_id:
-                    existing_meta = self._indexed_docs.get(existing_doc_id, {})
-                    stored_mtime = existing_meta.get("file_mtime", "")
-                    stored_size = existing_meta.get("file_size", 0)
+            chunks_added, dedup_skipped = self._index_document(doc)
+            self._commit_indexed_doc(
+                doc, chunks_added, dedup_skipped, existing_doc_id, force, stats, tracking
+            )
+        except Exception as e:
+            stats["errors"] += 1
+            print(f"[ERROR] Failed to index {doc.source}: {e}")
 
-                    try:
-                        current_stat = doc.source.stat()
-                        current_mtime = datetime.fromtimestamp(current_stat.st_mtime).isoformat()
-                        current_size = current_stat.st_size
-                    except OSError:
-                        current_mtime = ""
-                        current_size = 0
+    def _resolve_existing_or_skip(
+        self,
+        doc,
+        force: bool,
+        path_to_docid: Dict[str, str],
+        stats: Dict[str, Any],
+        tracking: Dict[str, Any],
+    ):
+        """Decide the fate of a candidate doc.
 
-                    if stored_mtime == current_mtime and stored_size == current_size:
-                        stats["skipped"] += 1
-                        continue
+        Returns ``_SKIP_DOC`` if the caller should skip (already indexed,
+        resume-committed, or unchanged); otherwise returns the existing
+        doc_id (may be None for a fresh doc). Evicts stale content when a
+        content change is detected.
+        """
+        if tracking["resume_doc_ids"] and doc.id in tracking["resume_doc_ids"]:
+            stats["skipped"] += 1
+            return _SKIP_DOC
 
-                    removed = self._remove_document_chunks(existing_doc_id)
-                    stats["chunks_removed"] += removed
-                    src = self._indexed_docs[existing_doc_id].get("source", "")
-                    if src:
-                        self._source_to_docid.pop(str(Path(src).resolve()), None)
-                    del self._indexed_docs[existing_doc_id]
-                    stats["updated"] += 1
-                elif not force and doc.id in self._indexed_docs:
-                    stats["skipped"] += 1
-                    continue
+        existing_doc_id = path_to_docid.get(str(doc.source))
+        if not force and existing_doc_id:
+            if self._unchanged_since_last_index(doc, existing_doc_id):
+                stats["skipped"] += 1
+                return _SKIP_DOC
+            self._evict_stale_doc(existing_doc_id, stats)
+        elif not force and doc.id in self._indexed_docs:
+            stats["skipped"] += 1
+            return _SKIP_DOC
+        return existing_doc_id
 
-                chunks_added, dedup_skipped = self._index_document(doc)
+    def _commit_indexed_doc(
+        self,
+        doc,
+        chunks_added: int,
+        dedup_skipped: int,
+        existing_doc_id: Optional[str],
+        force: bool,
+        stats: Dict[str, Any],
+        tracking: Dict[str, Any],
+    ) -> None:
+        """Post-index bookkeeping: stats bump + throughput sample + metadata write."""
+        if not (existing_doc_id and not force):
+            stats["indexed"] += 1
+        stats["chunks_added"] += chunks_added
+        stats["dedup_skipped"] += dedup_skipped
+        stats["categories"][doc.category] = (
+            stats["categories"].get(doc.category, 0) + 1
+        )
+        # Only bump chunks_processed on success — chunks_added is
+        # meaningful only when _index_document returned normally.
+        tracking["chunks_processed"] += chunks_added
+        self._register_indexed_doc(doc, chunks_added)
 
-                if not (existing_doc_id and not force):
-                    stats["indexed"] += 1
-                stats["chunks_added"] += chunks_added
-                stats["dedup_skipped"] += dedup_skipped
-                stats["categories"][doc.category] = stats["categories"].get(doc.category, 0) + 1
+    def _unchanged_since_last_index(self, doc, existing_doc_id: str) -> bool:
+        """True if the on-disk file matches the stored mtime + size."""
+        existing_meta = self._indexed_docs.get(existing_doc_id, {})
+        stored_mtime = existing_meta.get("file_mtime", "")
+        stored_size = existing_meta.get("file_size", 0)
+        try:
+            current_stat = doc.source.stat()
+            current_mtime = datetime.fromtimestamp(current_stat.st_mtime).isoformat()
+            current_size = current_stat.st_size
+        except OSError:
+            current_mtime = ""
+            current_size = 0
+        return stored_mtime == current_mtime and stored_size == current_size
 
-                # v4.8.0 Fase 4: track chunk-level progress + throughput.
-                # Kept out of the except branch on purpose — chunks_added is
-                # meaningful only when _index_document returned successfully.
-                chunks_processed += chunks_added
+    def _evict_stale_doc(self, existing_doc_id: str, stats: Dict[str, Any]) -> None:
+        """Remove chunks + metadata for a doc that needs reindexing. Bumps updated."""
+        removed = self._remove_document_chunks(existing_doc_id)
+        stats["chunks_removed"] += removed
+        src = self._indexed_docs[existing_doc_id].get("source", "")
+        if src:
+            self._source_to_docid.pop(str(Path(src).resolve()), None)
+        del self._indexed_docs[existing_doc_id]
+        stats["updated"] += 1
 
-                try:
-                    file_stat = doc.source.stat()
-                    file_mtime = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
-                    file_size = file_stat.st_size
-                except OSError:
-                    file_mtime = datetime.now().isoformat()
-                    file_size = 0
+    def _register_indexed_doc(self, doc, chunks_added: int) -> None:
+        """Persist post-index metadata (mtime/size/chunk count) for a doc."""
+        try:
+            file_stat = doc.source.stat()
+            file_mtime = datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+            file_size = file_stat.st_size
+        except OSError:
+            file_mtime = datetime.now().isoformat()
+            file_size = 0
 
-                self._indexed_docs[doc.id] = {
-                    "source": str(doc.source),
-                    "category": doc.category,
-                    "format": doc.format,
-                    "chunks": chunks_added,
-                    "keywords": doc.keywords,
-                    "indexed_at": datetime.now().isoformat(),
-                    "file_mtime": file_mtime,
-                    "file_size": file_size,
-                }
-                self._source_to_docid[str(doc.source.resolve())] = doc.id
+        self._indexed_docs[doc.id] = {
+            "source": str(doc.source),
+            "category": doc.category,
+            "format": doc.format,
+            "chunks": chunks_added,
+            "keywords": doc.keywords,
+            "indexed_at": datetime.now().isoformat(),
+            "file_mtime": file_mtime,
+            "file_size": file_size,
+        }
+        self._source_to_docid[str(doc.source.resolve())] = doc.id
 
-            except Exception as e:
-                stats["errors"] += 1
-                print(f"[ERROR] Failed to index {doc.source}: {e}")
+    def _update_progress_metrics(
+        self, idx: int, stats: Dict[str, Any], tracking: Dict[str, Any]
+    ) -> None:
+        """Compute throughput/ETA/refined total, publish to _reindex_progress."""
+        chunks_processed = tracking["chunks_processed"]
+        throughput_cps = self._sample_throughput(tracking, chunks_processed)
+        chunks_total_estimate = self._refine_chunks_total(
+            idx, chunks_processed, stats, tracking
+        )
+        eta_seconds = 0
+        if throughput_cps > 0 and chunks_total_estimate > chunks_processed:
+            eta_seconds = int(
+                (chunks_total_estimate - chunks_processed) / throughput_cps
+            )
+        self._reindex_progress.update(
+            {
+                "processed": idx + 1,
+                "indexed": stats["indexed"],
+                "skipped": stats["skipped"],
+                "errors": stats["errors"],
+                "chunks_processed": chunks_processed,
+                "chunks_total": chunks_total_estimate,
+                "throughput_cps": round(throughput_cps, 2),
+                "eta_seconds": eta_seconds,
+            }
+        )
 
-            # v4.8.0 Fase 4: compute throughput + ETA per iteration.
-            # Sliding window: 100 samples (deque maxlen) OR last 30s (pruned).
-            _now = time.monotonic()
-            _throughput_window.append((_now, chunks_processed))
-            while _throughput_window and (_now - _throughput_window[0][0]) > 30:
-                _throughput_window.popleft()
+    @staticmethod
+    def _sample_throughput(
+        tracking: Dict[str, Any], chunks_processed: int
+    ) -> float:
+        """Append current sample, prune >30s samples, return chunks/sec estimate.
 
-            throughput_cps = 0.0
-            if len(_throughput_window) >= 2:
-                oldest_ts, oldest_cnt = _throughput_window[0]
-                dt = _now - oldest_ts
-                if dt > 0:
-                    throughput_cps = (chunks_processed - oldest_cnt) / dt
+        Sliding window: 100 samples (deque maxlen) OR last 30s (pruned).
+        """
+        throughput_window: deque = tracking["throughput_window"]
+        now = time.monotonic()
+        throughput_window.append((now, chunks_processed))
+        while throughput_window and (now - throughput_window[0][0]) > 30:
+            throughput_window.popleft()
 
-            # Refine chunks_total: rolling average from docs processed so far,
-            # extrapolated across the full corpus. First iteration uses the
-            # warm-start value computed before the loop.
-            if idx + 1 > 0 and chunks_processed > 0:
-                _running_avg = chunks_processed / (idx + 1)
-                chunks_total_estimate = max(
-                    chunks_processed,
-                    int(_running_avg * stats["total_files"]),
-                )
+        if len(throughput_window) < 2:
+            return 0.0
+        oldest_ts, oldest_cnt = throughput_window[0]
+        dt = now - oldest_ts
+        if dt <= 0:
+            return 0.0
+        return (chunks_processed - oldest_cnt) / dt
 
-            eta_seconds = 0
-            if throughput_cps > 0 and chunks_total_estimate > chunks_processed:
-                eta_seconds = int(
-                    (chunks_total_estimate - chunks_processed) / throughput_cps
-                )
+    @staticmethod
+    def _refine_chunks_total(
+        idx: int,
+        chunks_processed: int,
+        stats: Dict[str, Any],
+        tracking: Dict[str, Any],
+    ) -> int:
+        """Refine chunks_total_estimate from rolling per-doc average. Stores back into tracking."""
+        chunks_total_estimate = tracking["chunks_total_estimate"]
+        if idx + 1 > 0 and chunks_processed > 0:
+            running_avg = chunks_processed / (idx + 1)
+            chunks_total_estimate = max(
+                chunks_processed,
+                int(running_avg * stats["total_files"]),
+            )
+            tracking["chunks_total_estimate"] = chunks_total_estimate
+        return chunks_total_estimate
 
-            self._reindex_progress.update(
-                {
-                    "processed": idx + 1,
-                    "indexed": stats["indexed"],
-                    "skipped": stats["skipped"],
-                    "errors": stats["errors"],
-                    "chunks_processed": chunks_processed,
-                    "chunks_total": chunks_total_estimate,
-                    "throughput_cps": round(throughput_cps, 2),
-                    "eta_seconds": eta_seconds,
-                }
+    def _maybe_persist_checkpoint(
+        self, idx: int, tracking: Dict[str, Any]
+    ) -> None:
+        """Write checkpoint every 500 docs OR 30s, whichever comes first.
+
+        500 covers fast runs (small/cached docs), 30s covers slow runs (huge
+        PDFs, network drive). Metadata is flushed alongside so a future
+        resume=True sees the same doc_ids in both places — otherwise resume
+        would skip docs missing from _indexed_docs and the collection drifts.
+        """
+        if not tracking["checkpoint_enabled"]:
+            return
+        due_by_count = (idx + 1) % 500 == 0
+        due_by_time = (time.monotonic() - tracking["last_checkpoint_ts"]) >= 30
+        if not (due_by_count or due_by_time):
+            return
+        try:
+            self._save_metadata()
+            self._write_checkpoint(
+                operation=tracking["op_mode"],
+                indexed_doc_ids=list(self._indexed_docs.keys()),
+                chunks_processed=tracking["chunks_processed"],
+                started_at=self._reindex_progress.get("started_at"),
+            )
+            tracking["last_checkpoint_ts"] = time.monotonic()
+        except OSError as e:
+            # Non-fatal — a lost checkpoint just gives less to resume from.
+            print(f"[WARN] Checkpoint write failed (non-fatal): {e}")
+
+    def _maybe_print_progress(
+        self, idx: int, stats: Dict[str, Any], progress_interval: int
+    ) -> None:
+        """Emit periodic progress line for corpora larger than 100 docs."""
+        if stats["total_files"] > 100 and (idx + 1) % progress_interval == 0:
+            pct = int((idx + 1) / stats["total_files"] * 100)
+            print(
+                f"[INDEX] Progress: {idx + 1}/{stats['total_files']} ({pct}%) "
+                f"— {stats['indexed']} new, {stats['skipped']} skipped"
             )
 
-            # v4.8.0 Fase 4: persist checkpoint every 500 docs OR 30s.
-            # Whichever comes first — 500 gives coverage for fast runs
-            # (small docs, mostly-cached), 30s gives coverage for slow
-            # runs (huge PDFs, network drive). I/O is a couple ms per
-            # write; dominance is the ChromaDB add() call it follows.
-            #
-            # Metadata is flushed alongside the checkpoint so that a
-            # future reindex(resume=True) sees the same doc_ids in both
-            # places — otherwise resume would skip docs that no longer
-            # exist in _indexed_docs and the collection would drift.
-            if _checkpoint_enabled and (
-                (idx + 1) % 500 == 0
-                or (time.monotonic() - _last_checkpoint_ts) >= 30
-            ):
-                try:
-                    self._save_metadata()
-                    self._write_checkpoint(
-                        operation=_op_mode,
-                        indexed_doc_ids=list(self._indexed_docs.keys()),
-                        chunks_processed=chunks_processed,
-                        started_at=self._reindex_progress.get("started_at"),
-                    )
-                    _last_checkpoint_ts = time.monotonic()
-                except OSError as e:
-                    # Non-fatal — losing a checkpoint write means the user
-                    # will just have less to resume from. The reindex itself
-                    # continues.
-                    print(f"[WARN] Checkpoint write failed (non-fatal): {e}")
-
-            if stats["total_files"] > 100 and (idx + 1) % _progress_interval == 0:
-                pct = int((idx + 1) / stats["total_files"] * 100)
-                print(
-                    f"[INDEX] Progress: {idx + 1}/{stats['total_files']} ({pct}%) "
-                    f"— {stats['indexed']} new, {stats['skipped']} skipped"
-                )
-
+    def _finalize_reindex(
+        self, stats: Dict[str, Any], tracking: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Flush metadata, clear checkpoint (if applicable), invalidate query cache."""
         self._save_metadata()
 
-        # v4.8.0 Fase 4: checkpoint is no longer needed after a successful
-        # run — clear it so the next reindex(resume=True) does not resume
-        # into a stale state.
-        if _checkpoint_enabled:
+        # Checkpoint is no longer needed after a successful run — clear it so
+        # the next reindex(resume=True) does not resume into a stale state.
+        if tracking["checkpoint_enabled"]:
             self._clear_checkpoint()
 
         if stats["indexed"] > 0 or stats["updated"] > 0 or stats["deleted"] > 0:
@@ -1562,26 +1706,26 @@ class KnowledgeOrchestrator:
     def _index_document(self, doc: Document) -> Tuple[int, int]:
         """Index a single document's chunks into ChromaDB and BM25 with dedup.
 
-        Large documents are split into batches of ``config.batch_size``
-        (default 500, YAML: ``documents.batch_size``, range [1, 5000]) to
-        prevent memory spikes when embedding thousands of chunks at once.
-        Falls back to the module constant ``_CHROMA_BATCH_SIZE`` when
-        ``config`` does not expose ``batch_size`` (test isolation).
-
-        When ``config.parallel_workers > 1`` (YAML:
-        ``documents.parallel_workers``, default 1), the per-batch
-        ``self.collection.add(...)`` calls run inside a
-        ``ThreadPoolExecutor``. The ONNX embedding session itself is
-        single-threaded (internal lock), so the win comes from SQLite
-        writes overlapping with the NEXT batch's inference — NOT from
-        parallel inference. Windows users should monitor stability at
-        ``workers > 4`` (see config.example.yaml note). Default 1
-        preserves current single-threaded behavior byte-for-byte on all
-        platforms.
+        Batching is controlled by ``config.batch_size`` (see
+        ``_add_chunks_batched``). When ``config.parallel_workers > 1``
+        the SQLite writes overlap with the NEXT batch's ONNX inference —
+        NOT parallel inference (embedding kernel is serial). Default 1
+        preserves single-threaded behavior byte-for-byte.
         """
         if not doc.chunks:
             return 0, 0
 
+        unique_ids, unique_docs, unique_metas, dedup_skipped = self._dedup_chunks(doc)
+
+        if unique_ids:
+            self._add_chunks_batched(unique_ids, unique_docs, unique_metas)
+            self.bm25_index.add_documents(unique_ids, unique_docs)
+
+        return len(unique_ids), dedup_skipped
+
+    @staticmethod
+    def _dedup_chunks(doc: Document):
+        """Deduplicate chunks by content SHA256 prefix; build parallel id/doc/meta lists."""
         unique_ids = []
         unique_docs = []
         unique_metas = []
@@ -1590,14 +1734,11 @@ class KnowledgeOrchestrator:
 
         for chunk in doc.chunks:
             content_hash = hashlib.sha256(chunk.content.encode("utf-8")).hexdigest()[:20]
-            chunk_id = f"{doc.id}_{chunk.index}"
-
             if content_hash in seen_hashes:
                 dedup_skipped += 1
                 continue
-
             seen_hashes.add(content_hash)
-            unique_ids.append(chunk_id)
+            unique_ids.append(f"{doc.id}_{chunk.index}")
             unique_docs.append(chunk.content)
             unique_metas.append(
                 {
@@ -1612,44 +1753,45 @@ class KnowledgeOrchestrator:
                     **chunk.metadata,
                 }
             )
+        return unique_ids, unique_docs, unique_metas, dedup_skipped
 
-        if unique_ids:
-            bs = getattr(config, "batch_size", self._CHROMA_BATCH_SIZE)
-            workers = getattr(config, "parallel_workers", 1)
+    def _add_chunks_batched(self, ids, docs, metas) -> None:
+        """Dispatch ChromaDB.add across batches (parallel path when workers > 1)."""
+        bs = getattr(config, "batch_size", self._CHROMA_BATCH_SIZE)
+        workers = getattr(config, "parallel_workers", 1)
 
-            if workers > 1 and len(unique_ids) > bs:
-                # Parallel path: ChromaDB SQLite writes overlap with the
-                # NEXT batch's ONNX inference (embedding kernel is serial
-                # inside ONNX). Only engage when we have >1 batch to run;
-                # a single-batch document has no parallelism to exploit.
-                from concurrent.futures import ThreadPoolExecutor
+        if workers > 1 and len(ids) > bs:
+            self._add_chunks_parallel(ids, docs, metas, bs, workers)
+        else:
+            # Single-threaded path (default) — byte-identical to prior behavior.
+            for i in range(0, len(ids), bs):
+                self.collection.add(
+                    ids=ids[i : i + bs],
+                    documents=docs[i : i + bs],
+                    metadatas=metas[i : i + bs],
+                )
 
-                with ThreadPoolExecutor(max_workers=workers) as pool:
-                    futures = [
-                        pool.submit(
-                            self.collection.add,
-                            ids=unique_ids[i : i + bs],
-                            documents=unique_docs[i : i + bs],
-                            metadatas=unique_metas[i : i + bs],
-                        )
-                        for i in range(0, len(unique_ids), bs)
-                    ]
-                    # .result() propagates the first exception; caller sees
-                    # it as an indexing failure (same shape as sequential).
-                    for f in futures:
-                        f.result()
-            else:
-                # Single-threaded path (default) — byte-identical to prior behavior.
-                for i in range(0, len(unique_ids), bs):
-                    self.collection.add(
-                        ids=unique_ids[i : i + bs],
-                        documents=unique_docs[i : i + bs],
-                        metadatas=unique_metas[i : i + bs],
-                    )
+    def _add_chunks_parallel(self, ids, docs, metas, bs: int, workers: int) -> None:
+        """Parallel batch add — SQLite writes overlap with NEXT batch's inference.
 
-            self.bm25_index.add_documents(unique_ids, unique_docs)
+        ONNX inference itself is serial inside the embedding kernel; the win
+        is I/O overlap. First exception from .result() surfaces to the caller
+        as an indexing failure (same shape as the sequential path).
+        """
+        from concurrent.futures import ThreadPoolExecutor
 
-        return len(unique_ids), dedup_skipped
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(
+                    self.collection.add,
+                    ids=ids[i : i + bs],
+                    documents=docs[i : i + bs],
+                    metadatas=metas[i : i + bs],
+                )
+                for i in range(0, len(ids), bs)
+            ]
+            for f in futures:
+                f.result()
 
     def _remove_document_chunks(self, doc_id: str) -> int:
         """Remove all chunks belonging to a document from ChromaDB and BM25."""
@@ -1680,7 +1822,24 @@ class KnowledgeOrchestrator:
         if self._reindex_progress.get("active"):
             return {"status": "already_running", "progress": dict(self._reindex_progress)}
 
-        self._reindex_progress = {
+        self._reindex_progress = self._fresh_reindex_progress(mode, resume_state)
+
+        target = {
+            "incremental": lambda: self.index_all(force=False),
+            "smart_reindex": lambda: self.reindex_all(resume_state=resume_state),
+            "nuclear_rebuild": self.nuclear_rebuild,
+        }[mode]
+
+        thread = threading.Thread(target=self._run_reindex, args=(target,), daemon=True)
+        thread.start()
+        return {"status": "started", "operation": mode}
+
+    @staticmethod
+    def _fresh_reindex_progress(
+        mode: str, resume_state: Optional[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Build the initial _reindex_progress dict for a new background run."""
+        return {
             "active": True,
             "operation": mode,
             "total_files": 0,
@@ -1701,16 +1860,6 @@ class KnowledgeOrchestrator:
             "checkpoint_saved_at": None,
             "resumed": bool(resume_state),
         }
-
-        target = {
-            "incremental": lambda: self.index_all(force=False),
-            "smart_reindex": lambda: self.reindex_all(resume_state=resume_state),
-            "nuclear_rebuild": self.nuclear_rebuild,
-        }[mode]
-
-        thread = threading.Thread(target=self._run_reindex, args=(target,), daemon=True)
-        thread.start()
-        return {"status": "started", "operation": mode}
 
     def _run_reindex(self, target: Any) -> None:
         """Background thread runner for reindex operations."""
@@ -1797,10 +1946,8 @@ class KnowledgeOrchestrator:
 
         Runs opportunistically at Orchestrator init and before each swap
         rebuild. Idempotent — safe to call repeatedly. Stagings younger than
-        the TTL are preserved because they may belong to a rebuild in flight
-        (another process, another host mounting the same DB, or a very slow
-        embed backend). Structured logging reports counts so operators can
-        spot leaks.
+        the TTL are preserved because they may belong to a rebuild in flight.
+        Structured logging reports counts so operators can spot leaks.
         """
         prefix = f"{config.collection_name}__staging_"
         now = int(time.time())
@@ -1812,27 +1959,7 @@ class KnowledgeOrchestrator:
             return stats
 
         for coll in existing:
-            name = getattr(coll, "name", "")
-            if not name.startswith(prefix):
-                continue
-            stats["scanned"] += 1
-            suffix = name[len(prefix):]
-            try:
-                ts = int(suffix)
-            except ValueError:
-                # Non-conforming name — leave it alone rather than delete
-                # something we didn't create.
-                stats["preserved"] += 1
-                continue
-            if (now - ts) < self._STAGING_TTL_SECONDS:
-                stats["preserved"] += 1
-                continue
-            try:
-                self.chroma_client.delete_collection(name)
-                stats["removed"] += 1
-                print(f"[STAGING] Cleaned up stale staging: {name}")
-            except Exception as e:
-                print(f"[STAGING] Failed to delete {name} (non-fatal): {e}")
+            self._process_staging_candidate(coll, prefix, now, stats)
 
         if stats["removed"] > 0 or stats["scanned"] > 0:
             print(
@@ -1840,6 +1967,35 @@ class KnowledgeOrchestrator:
                 f"removed={stats['removed']} preserved={stats['preserved']}"
             )
         return stats
+
+    def _process_staging_candidate(
+        self, coll, prefix: str, now: int, stats: Dict[str, int]
+    ) -> None:
+        """Classify one candidate and delete if past TTL. Mutates ``stats``.
+
+        Non-matching names are silent skips. Names with the prefix but a
+        non-integer timestamp are preserved — we don't delete anything we
+        didn't create. TTL breach triggers a best-effort delete.
+        """
+        name = getattr(coll, "name", "")
+        if not name.startswith(prefix):
+            return
+        stats["scanned"] += 1
+        suffix = name[len(prefix):]
+        try:
+            ts = int(suffix)
+        except ValueError:
+            stats["preserved"] += 1
+            return
+        if (now - ts) < self._STAGING_TTL_SECONDS:
+            stats["preserved"] += 1
+            return
+        try:
+            self.chroma_client.delete_collection(name)
+            stats["removed"] += 1
+            print(f"[STAGING] Cleaned up stale staging: {name}")
+        except Exception as e:
+            print(f"[STAGING] Failed to delete {name} (non-fatal): {e}")
 
     def _create_staging_collection(self, ts: int):
         """Create a fresh staging collection with the current embedding fn.
@@ -1914,19 +2070,11 @@ class KnowledgeOrchestrator:
         }
 
     def _validate_staging(self, staging, baseline_count: int) -> Dict[str, Any]:
-        """Sanity-check the staging collection before swap.
+        """Sanity-check the staging collection before swap via three gates.
 
-        Three gates, all must pass:
-
-        1. Count within 10% of baseline (accommodates a small number of
-           truly-broken docs that the parser skipped this run — worse loss
-           means something regressed and we abort).
-        2. 4 of 5 canonical queries return at least one hit each. The
-           threshold is 4/5 instead of 5/5 because a genuinely small corpus
-           may legitimately not contain e.g. ``return``.
-        3. A query against staging does not raise. This catches dimension
-           mismatches and other backend corruption that a raw ``count()``
-           check would miss.
+        Gate 1 (count): within 10% of baseline — see ``_validate_staging_count``.
+        Gates 2+3 (queries): canonical hits + backend integrity — see
+        ``_validate_staging_canonical_queries``.
 
         Returns a dict with ``ok: bool`` plus per-gate stats for logging.
         """
@@ -1938,19 +2086,37 @@ class KnowledgeOrchestrator:
             "canonical_hits": 0,
             "query_error": None,
         }
+        if not self._validate_staging_count(staging, baseline_count, result):
+            return result
+        if not self._validate_staging_canonical_queries(staging, baseline_count, result):
+            return result
+
+        result["ok"] = True
+        return result
+
+    def _validate_staging_count(
+        self, staging, baseline_count: int, result: Dict[str, Any]
+    ) -> bool:
+        """Gate 1 — count within 10% of baseline. Baseline 0 skips size check."""
         try:
             result["count"] = staging.count()
         except Exception as e:
             result["query_error"] = f"count failed: {e}"
-            return result
+            return False
 
-        # Gate 1 — size. Baseline zero skips this (fresh install case).
         min_expected = int(baseline_count * 0.9) if baseline_count > 0 else 0
         result["min_expected"] = min_expected
-        if result["count"] < min_expected:
-            return result
+        return result["count"] >= min_expected
 
-        # Gate 2 + 3 — canonical query sanity.
+    def _validate_staging_canonical_queries(
+        self, staging, baseline_count: int, result: Dict[str, Any]
+    ) -> bool:
+        """Gates 2 + 3 — canonical query sanity + backend integrity.
+
+        Runs each canonical query; any raise fails gate 3 (backend corruption).
+        Empty corpus (baseline 0) legitimately fails canonical queries and is
+        allowed to pass since gate 1 already covered the size dimension.
+        """
         hits = 0
         for q in self._STAGING_SANITY_QUERIES:
             try:
@@ -1959,33 +2125,23 @@ class KnowledgeOrchestrator:
                     hits += 1
             except Exception as e:
                 result["query_error"] = f"query '{q}' failed: {e}"
-                return result
+                return False
         result["canonical_hits"] = hits
 
-        # Empty corpus (baseline 0) legitimately fails canonical queries.
-        # Skip this gate in that case — the count gate already passed.
         if baseline_count > 0 and hits < 4:
-            return result
-
-        result["ok"] = True
-        return result
+            return False
+        return True
 
     def _swap_collections_atomic(self, staging, prod_name: str, ts: int) -> None:
         """Two-step rename: prod → old, staging → prod, then delete old.
 
-        ChromaDB's ``Collection.modify(name=)`` renames in place — no
-        client-side data movement. Race window between the two modifies
-        is a single Python statement (~microseconds); a query landing there
-        would fail to find ``prod_name``. In-process serialization is not
-        offered by ChromaDB so if a caller needs true atomicity they must
-        gate reads at the application layer. For our use case (single
-        Orchestrator per process, queries all funnel through ``self.query``)
-        the ``self.collection = ...`` rebind after this returns means the
-        query path is only ever pointed at the "current" object.
+        ChromaDB's ``Collection.modify(name=)`` renames in place — no data
+        movement. Race window between the two modifies is one Python
+        statement (~microseconds); queries funnel through ``self.query``
+        which reads the rebound ``self.collection`` after this returns.
 
-        Rollback: if step 2 fails after step 1 succeeded, we rename prod
-        back so the previous state is intact. Raises on any unrecoverable
-        state so the caller aborts loudly.
+        Rollback contract lives in ``_promote_staging_or_rollback``. This
+        raises on any unrecoverable state so the caller aborts loudly.
         """
         old_name = f"{prod_name}__old_{ts}"
         prod = self.chroma_client.get_collection(prod_name)
@@ -1993,11 +2149,26 @@ class KnowledgeOrchestrator:
         # Step 1: free the production name.
         prod.modify(name=old_name)
 
-        # Step 2: staging assumes the production name.
+        # Step 2: staging assumes the production name (with rollback).
+        self._promote_staging_or_rollback(staging, prod, prod_name, old_name)
+
+        # Step 3: cleanup the old prod. Non-fatal — cleanup helper ages it out.
+        try:
+            self.chroma_client.delete_collection(old_name)
+        except Exception as e:
+            print(f"[SWAP] Failed to delete post-swap old prod (non-fatal): {e}")
+
+    def _promote_staging_or_rollback(
+        self, staging, prod, prod_name: str, old_name: str
+    ) -> None:
+        """Rename staging to production; on failure, restore previous prod name.
+
+        If both the rename AND the rollback fail, prod is left at ``old_name``
+        and the caller aborts loudly (raise) so operators can recover manually.
+        """
         try:
             staging.modify(name=prod_name)
         except Exception:
-            # Best-effort rollback so the previous prod is still queryable.
             try:
                 prod.modify(name=prod_name)
             except Exception as inner:
@@ -2006,13 +2177,6 @@ class KnowledgeOrchestrator:
                     f"failed. Prod is at '{old_name}'. Inner: {inner}"
                 )
             raise
-
-        # Step 3: cleanup the old prod. Non-fatal if it fails — cleanup
-        # helper will age it out later.
-        try:
-            self.chroma_client.delete_collection(old_name)
-        except Exception as e:
-            print(f"[SWAP] Failed to delete post-swap old prod (non-fatal): {e}")
 
     def _rebuild_bm25_post_swap(self, prod_name: str) -> None:
         """Reconnect self.collection to the swapped prod + rebuild BM25.
@@ -2088,20 +2252,14 @@ class KnowledgeOrchestrator:
     def _rebuild_via_swap(self) -> Dict[str, Any]:
         """Zero-downtime rebuild: staging collection + validate + atomic swap.
 
-        Production collection keeps serving queries until step 4 (swap)
-        completes. If any earlier step fails, the staging is deleted and
-        production state is restored via snapshot so callers see exactly
-        the same pre-call state.
+        Production collection keeps serving queries until swap completes.
+        If any earlier step fails, staging is deleted and production state
+        is restored via snapshot so callers see exactly the pre-call state.
         """
         print("[NUCLEAR] Starting zero-downtime rebuild (swap=True)...")
         start_time = time.time()
-
         prod_name = config.collection_name
-        baseline_count = 0
-        try:
-            baseline_count = self.collection.count()
-        except Exception as e:
-            print(f"[SWAP] Could not read baseline count (assume 0): {e}")
+        baseline_count = self._read_baseline_count()
 
         self._cleanup_stale_staging_collections()
 
@@ -2111,39 +2269,20 @@ class KnowledgeOrchestrator:
 
         try:
             stats = self._populate_staging(staging)
-
-            validation = self._validate_staging(staging, baseline_count)
-            if not validation["ok"]:
-                print(
-                    f"[SWAP] Validation FAILED — count={validation['count']} "
-                    f"min={validation['min_expected']} "
-                    f"canonical_hits={validation['canonical_hits']}/5 "
-                    f"err={validation['query_error']}"
-                )
-                raise RuntimeError(
-                    f"Staging validation failed: {validation}"
-                )
-
-            print(
-                f"[SWAP] Validation OK — count={validation['count']} "
-                f"canonical_hits={validation['canonical_hits']}/5"
-            )
-
+            self._enforce_staging_validation(staging, baseline_count)
             self._swap_collections_atomic(staging, prod_name, ts)
             self._rebuild_bm25_post_swap(prod_name)
             self._save_metadata()
-
         except Exception:
-            # Rollback: restore prod state + delete staging orphan.
-            self._rollback_staging_state(_saved)
-            try:
-                self.chroma_client.delete_collection(
-                    f"{prod_name}__staging_{ts}"
-                )
-            except Exception:
-                pass  # cleanup helper will age it out
+            self._rollback_and_cleanup_staging(prod_name, ts, _saved)
             raise
 
+        return self._finalize_swap_stats(stats, start_time)
+
+    def _finalize_swap_stats(
+        self, stats: Dict[str, Any], start_time: float
+    ) -> Dict[str, Any]:
+        """Stamp elapsed_seconds and emit the completion banner."""
         elapsed = time.time() - start_time
         stats["elapsed_seconds"] = round(elapsed, 2)
         print(
@@ -2151,6 +2290,40 @@ class KnowledgeOrchestrator:
             f"({stats['indexed']} docs, {stats['chunks_added']} chunks)"
         )
         return stats
+
+    def _read_baseline_count(self) -> int:
+        """Best-effort baseline read for the size gate. Zero on read failure."""
+        try:
+            return self.collection.count()
+        except Exception as e:
+            print(f"[SWAP] Could not read baseline count (assume 0): {e}")
+            return 0
+
+    def _enforce_staging_validation(self, staging, baseline_count: int) -> None:
+        """Run gates + log the outcome. Raises RuntimeError on failure."""
+        validation = self._validate_staging(staging, baseline_count)
+        if not validation["ok"]:
+            print(
+                f"[SWAP] Validation FAILED — count={validation['count']} "
+                f"min={validation['min_expected']} "
+                f"canonical_hits={validation['canonical_hits']}/5 "
+                f"err={validation['query_error']}"
+            )
+            raise RuntimeError(f"Staging validation failed: {validation}")
+        print(
+            f"[SWAP] Validation OK — count={validation['count']} "
+            f"canonical_hits={validation['canonical_hits']}/5"
+        )
+
+    def _rollback_and_cleanup_staging(
+        self, prod_name: str, ts: int, saved
+    ) -> None:
+        """Restore pre-staging prod state + delete the staging orphan."""
+        self._rollback_staging_state(saved)
+        try:
+            self.chroma_client.delete_collection(f"{prod_name}__staging_{ts}")
+        except Exception:
+            pass  # cleanup helper will age it out
 
     def nuclear_rebuild(self, swap: bool = True) -> Dict[str, Any]:
         """Rebuild the collection from scratch.
@@ -2954,46 +3127,42 @@ class KnowledgeOrchestrator:
     def get_reindex_status(self) -> Dict[str, Any]:
         """Get background reindex progress without computing full index stats.
 
-        Returns a dict describing the current or last reindex operation.
-
-        When a reindex is in flight (``active=True``), the payload includes:
-
-        - ``operation``: one of ``incremental`` | ``smart_reindex`` | ``nuclear_rebuild``
-        - ``progress`` / ``percent``: doc-level completion
-        - ``indexed`` / ``skipped`` / ``errors``: doc-level counters
-        - ``started_at``: ISO timestamp when the background thread began
-        - **v4.8.0 Fase 4** — ``chunks_processed`` (chunks committed to
-          ChromaDB), ``chunks_total`` (rolling estimate, 0 during warmup),
-          ``throughput_cps`` (chunks/sec, sliding window of last 30s or
-          100 samples), ``eta_seconds`` (estimated seconds to completion),
-          ``checkpoint_saved_at`` (ISO timestamp of last checkpoint write),
-          ``resumed`` (bool — True when this run recovered from a checkpoint)
-
-        When idle (``active=False``) the payload includes ``last_result``
-        or ``last_error`` from the most recent completed run.
+        Active runs return doc-level counters + v4.8.0 Fase 4 granular fields
+        (chunks_processed, chunks_total, throughput_cps, eta_seconds,
+        checkpoint_saved_at, resumed). Idle returns ``active=False`` plus
+        ``last_result`` or ``last_error`` from the most recent completed run.
         """
         progress = self._reindex_progress
         if progress.get("active"):
-            total = max(1, progress.get("total_files", 1))
-            processed = progress.get("processed", 0)
-            return {
-                "active": True,
-                "operation": progress.get("operation"),
-                "progress": f"{processed}/{progress.get('total_files', 0)}",
-                "percent": round(processed / total * 100),
-                "indexed": progress.get("indexed", 0),
-                "skipped": progress.get("skipped", 0),
-                "errors": progress.get("errors", 0),
-                "started_at": progress.get("started_at"),
-                # v4.8.0 Fase 4: granular progress + resume checkpoint fields
-                "chunks_processed": progress.get("chunks_processed", 0),
-                "chunks_total": progress.get("chunks_total", 0),
-                "throughput_cps": progress.get("throughput_cps", 0.0),
-                "eta_seconds": progress.get("eta_seconds", 0),
-                "checkpoint_saved_at": progress.get("checkpoint_saved_at"),
-                "resumed": progress.get("resumed", False),
-            }
+            return self._active_reindex_status(progress)
+        return self._idle_reindex_status(progress)
 
+    @staticmethod
+    def _active_reindex_status(progress: Dict[str, Any]) -> Dict[str, Any]:
+        """Payload shape for an in-flight background reindex."""
+        total = max(1, progress.get("total_files", 1))
+        processed = progress.get("processed", 0)
+        return {
+            "active": True,
+            "operation": progress.get("operation"),
+            "progress": f"{processed}/{progress.get('total_files', 0)}",
+            "percent": round(processed / total * 100),
+            "indexed": progress.get("indexed", 0),
+            "skipped": progress.get("skipped", 0),
+            "errors": progress.get("errors", 0),
+            "started_at": progress.get("started_at"),
+            # v4.8.0 Fase 4: granular progress + resume checkpoint fields
+            "chunks_processed": progress.get("chunks_processed", 0),
+            "chunks_total": progress.get("chunks_total", 0),
+            "throughput_cps": progress.get("throughput_cps", 0.0),
+            "eta_seconds": progress.get("eta_seconds", 0),
+            "checkpoint_saved_at": progress.get("checkpoint_saved_at"),
+            "resumed": progress.get("resumed", False),
+        }
+
+    @staticmethod
+    def _idle_reindex_status(progress: Dict[str, Any]) -> Dict[str, Any]:
+        """Payload shape for idle state — surfaces last_result or last_error if present."""
         result: Dict[str, Any] = {"active": False}
         if "result" in progress:
             result["last_result"] = progress["result"]
@@ -3297,87 +3466,50 @@ def get_document(filepath: str) -> str:
     return json.dumps({"status": "success", "document": doc}, indent=2, ensure_ascii=False)
 
 
-@mcp.tool()
-@rate_limited
-@instrument("reindex_documents")
-def reindex_documents(
-    force: bool = False,
-    full_rebuild: bool = False,
-    resume: bool = False,
-) -> str:
+def _reindex_error_response(message: str) -> str:
+    """JSON error envelope for reindex_documents pre-flight validation."""
+    return json.dumps(
+        {"status": "error", "error": message},
+        indent=2,
+        ensure_ascii=False,
+    )
+
+
+def _resolve_reindex_mode(force: bool, full_rebuild: bool, resume: bool) -> str:
+    """Pick the reindex mode. Resume forces smart_reindex regardless of force flag.
+
+    Rationale: an interrupted smart run must be resumed with smart — an
+    incremental pass would ignore the checkpoint entirely.
     """
-    Index or reindex all documents in the knowledge base.
-
-    Runs in background — returns immediately. Use get_reindex_status() to monitor progress.
-
-    Args:
-        force: If True, smart reindex (detects changed files + rebuilds BM25 index).
-            Use after manually editing files on disk outside of add_document().
-        full_rebuild: If True, nuclear rebuild — deletes all vectors and re-embeds everything
-            from scratch. Use only if the embedding model changed or the index is corrupted.
-        resume: If True (v4.8.0 Fase 4), pick up an interrupted smart reindex from
-            data/reindex_checkpoint.json. Docs already committed in the previous run are
-            skipped; chunk counter continues from the checkpoint. Only valid when
-            full_rebuild=False (nuclear rebuild has no checkpoint semantic — the whole
-            collection is thrown away). Silently starts a fresh reindex if no checkpoint
-            exists or the checkpoint is invalid (missing/corrupt/config drift).
-
-    Returns:
-        JSON string with operation status. Poll get_reindex_status() for reindex.active,
-        reindex.progress, and reindex.percent until reindex.active becomes false.
-
-    Usage: Normal workflow does not require this — add_document(), update_document(), and
-    add_from_url() all auto-index on call. Use force=True only after direct filesystem edits.
-    Use full_rebuild=True only for model upgrades or index corruption. Use resume=True after
-    a crashed or killed reindex to avoid restarting from zero. No arguments runs a fast
-    incremental pass.
-    """
-    orchestrator = get_orchestrator()
-
-    # v4.8.0 Fase 4: reject the nonsensical combination up front. Nuclear
-    # rebuild wipes the collection first — resuming into it would leave a
-    # partial set with no coherent state.
-    if resume and full_rebuild:
-        return json.dumps(
-            {
-                "status": "error",
-                "error": (
-                    "resume=True is only valid for smart reindex; "
-                    "use full_rebuild=False"
-                ),
-            },
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    if full_rebuild:
-        mode = "nuclear_rebuild"
-    elif force:
-        mode = "smart_reindex"
-    else:
-        mode = "incremental"
-
-    # v4.8.0 Fase 4: load checkpoint if resume was requested.
-    resume_state: Optional[Dict[str, Any]] = None
     if resume:
-        # Force smart_reindex mode when resume is requested — an interrupted
-        # smart run must be resumed with smart, not with an unrelated
-        # incremental pass that would ignore the checkpoint entirely.
-        mode = "smart_reindex"
-        cp = orchestrator._load_checkpoint()
-        if cp is None:
-            print(
-                "[INFO] resume=True but no valid checkpoint — "
-                "starting fresh smart reindex"
-            )
-        else:
-            resume_state = {
-                "doc_ids": cp.get("indexed_doc_ids", []),
-                "chunks_processed": cp.get("chunks_processed", 0),
-            }
+        return "smart_reindex"
+    if full_rebuild:
+        return "nuclear_rebuild"
+    if force:
+        return "smart_reindex"
+    return "incremental"
 
-    result = orchestrator.start_reindex_background(mode, resume_state=resume_state)
 
+def _load_reindex_resume_state(orchestrator) -> Optional[Dict[str, Any]]:
+    """v4.8.0 Fase 4 — hydrate resume_state from the on-disk checkpoint.
+
+    Returns None (silent fresh reindex) if no valid checkpoint exists —
+    corrupt/missing checkpoints must not block a legitimate run.
+    """
+    cp = orchestrator._load_checkpoint()
+    if cp is None:
+        print(
+            "[INFO] resume=True but no valid checkpoint — starting fresh smart reindex"
+        )
+        return None
+    return {
+        "doc_ids": cp.get("indexed_doc_ids", []),
+        "chunks_processed": cp.get("chunks_processed", 0),
+    }
+
+
+def _format_reindex_response(mode: str, result: Dict[str, Any]) -> str:
+    """Serialize the orchestrator result — already-running vs started envelopes."""
     if result["status"] == "already_running":
         progress = result["progress"]
         return json.dumps(
@@ -3390,7 +3522,6 @@ def reindex_documents(
             indent=2,
             ensure_ascii=False,
         )
-
     return json.dumps(
         {
             "status": "started",
@@ -3400,6 +3531,41 @@ def reindex_documents(
         indent=2,
         ensure_ascii=False,
     )
+
+
+@mcp.tool()
+@rate_limited
+@instrument("reindex_documents")
+def reindex_documents(
+    force: bool = False,
+    full_rebuild: bool = False,
+    resume: bool = False,
+) -> str:
+    """Index or reindex all documents in the knowledge base (runs in background).
+
+    ``force`` — smart reindex (detect changed files + rebuild BM25). Use after
+    filesystem edits outside add_document/update_document.
+    ``full_rebuild`` — nuclear rebuild (delete + re-embed). Use only after
+    embedding-model change or index corruption. Mutually exclusive with resume.
+    ``resume`` — pick up an interrupted smart reindex from
+    ``data/reindex_checkpoint.json``. Falls back to a fresh smart run silently
+    if the checkpoint is missing/corrupt/drifted (v4.8.0 Fase 4).
+
+    Returns a JSON envelope. Poll ``get_reindex_status()`` until
+    ``reindex.active`` becomes false. Add/update/URL tools already auto-index —
+    use these flags only for the recovery/rebuild scenarios above.
+    """
+    orchestrator = get_orchestrator()
+
+    if resume and full_rebuild:
+        return _reindex_error_response(
+            "resume=True is only valid for smart reindex; use full_rebuild=False"
+        )
+
+    mode = _resolve_reindex_mode(force, full_rebuild, resume)
+    resume_state = _load_reindex_resume_state(orchestrator) if resume else None
+    result = orchestrator.start_reindex_background(mode, resume_state=resume_state)
+    return _format_reindex_response(mode, result)
 
 
 @mcp.tool()
