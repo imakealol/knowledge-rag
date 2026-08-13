@@ -150,6 +150,28 @@ class TestIpynbParser:
         assert doc is not None
         assert doc.metadata.get("is_valid_json") is False
 
+    def test_malformed_notebook_structure_does_not_crash(self, parser, tmp_path):
+        # Valid JSON but not a well-formed notebook: null metadata/cells, a
+        # non-dict cell, or a bare list. Also a dict cell whose "source" is not
+        # the str | list[str] the nbformat spec calls for (a number, a dict, or
+        # a list with non-string items). These must be handled gracefully
+        # instead of crashing with AttributeError/TypeError.
+        malformed = [
+            json.dumps({"nbformat": 4, "metadata": None, "cells": []}),
+            json.dumps({"nbformat": 4, "metadata": {}, "cells": None}),
+            json.dumps({"nbformat": 4, "metadata": {}, "cells": [42, "x"]}),
+            json.dumps([1, 2, 3]),
+            json.dumps({"nbformat": 4, "metadata": {}, "cells": [{"cell_type": "code", "source": 42}]}),
+            json.dumps({"nbformat": 4, "metadata": {}, "cells": [{"cell_type": "markdown", "source": [1, 2, 3]}]}),
+            json.dumps({"nbformat": 4, "metadata": {}, "cells": [{"cell_type": "code", "source": {"x": 1}}]}),
+        ]
+        for i, raw in enumerate(malformed):
+            f = tmp_path / f"malformed_{i}.ipynb"
+            f.write_text(raw, encoding="utf-8")
+            # Must not raise AttributeError/TypeError. Returning None (skipped as
+            # empty) or a Document are both acceptable outcomes.
+            parser.parse_file(f)
+
     def test_chunks_generated(self, parser, sample_ipynb):
         doc = parser.parse_file(sample_ipynb)
         assert len(doc.chunks) > 0
