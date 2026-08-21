@@ -272,6 +272,164 @@ def test_parse_javascript(parser, sample_js):
     assert len(doc.metadata.get("imports", [])) >= 2
 
 
+def test_parse_yaml(parser, sample_yaml):
+    """YAML parser extracts K8s metadata."""
+    doc = parser.parse_file(sample_yaml)
+    assert doc is not None
+    assert doc.format == ".yaml"
+    assert doc.metadata.get("type") == "yaml"
+    assert doc.metadata.get("k8s_kind") == "Deployment"
+    assert doc.metadata.get("k8s_api_version") == "apps/v1"
+    assert doc.metadata.get("k8s_name") == "auth-service"
+
+
+def test_parse_go(parser, sample_go):
+    """Go parser extracts functions and structs."""
+    doc = parser.parse_file(sample_go)
+    assert doc is not None
+    assert doc.format == ".go"
+    assert doc.metadata.get("language") == "go"
+    assert "main" in doc.metadata.get("functions", [])
+    assert "handler" in doc.metadata.get("functions", [])
+    assert "Addr" in doc.metadata.get("functions", [])  # method with receiver
+    assert "Config" in doc.metadata.get("classes", [])
+
+
+def test_parse_sql(parser, sample_sql):
+    """SQL parser extracts tables and statements."""
+    doc = parser.parse_file(sample_sql)
+    assert doc is not None
+    assert doc.format == ".sql"
+    assert doc.metadata.get("type") == "sql"
+    assert "users" in doc.metadata.get("tables", [])
+    assert "public.orders" in doc.metadata.get("tables", [])
+    assert "CREATE" in doc.metadata.get("statements", [])
+
+
+def test_parse_proto(parser, sample_proto):
+    """Proto parser extracts services, messages, and rpcs."""
+    doc = parser.parse_file(sample_proto)
+    assert doc is not None
+    assert doc.format == ".proto"
+    assert doc.metadata.get("type") == "protobuf"
+    assert "AuthService" in doc.metadata.get("services", [])
+    assert "ValidateRequest" in doc.metadata.get("messages", [])
+    assert "ValidateAccess" in doc.metadata.get("rpcs", [])
+
+
+def test_parse_shell(parser, sample_shell):
+    """Shell parser extracts functions."""
+    doc = parser.parse_file(sample_shell)
+    assert doc is not None
+    assert doc.format == ".sh"
+    assert doc.metadata.get("type") == "shell"
+    assert "deploy" in doc.metadata.get("functions", [])
+    assert "cleanup" in doc.metadata.get("functions", [])
+
+
+def test_parse_kotlin(parser, sample_kotlin):
+    """Kotlin parser extracts fun declarations (top-level and class members) and classes."""
+    doc = parser.parse_file(sample_kotlin)
+    assert doc is not None
+    assert doc.format == ".kt"
+    assert doc.metadata.get("language") == "kotlin"
+    assert "validate" in doc.metadata.get("functions", [])
+    assert "helper" in doc.metadata.get("functions", [])
+    assert "AuthService" in doc.metadata.get("classes", [])
+    assert "Session" in doc.metadata.get("classes", [])
+
+
+def test_parse_rust(parser, sample_rust):
+    """Rust parser extracts fn declarations, structs, enums, traits, and use imports."""
+    doc = parser.parse_file(sample_rust)
+    assert doc is not None
+    assert doc.format == ".rs"
+    assert doc.metadata.get("language") == "rust"
+    assert "main" in doc.metadata.get("functions", [])
+    assert "serve" in doc.metadata.get("functions", [])
+    assert "handle" in doc.metadata.get("functions", [])
+    assert "Config" in doc.metadata.get("classes", [])
+    assert "State" in doc.metadata.get("classes", [])
+    assert "Handler" in doc.metadata.get("classes", [])
+    assert any(i.startswith("use ") for i in doc.metadata.get("imports", []))
+
+
+def test_parse_hujson(parser, sample_hujson):
+    """HuJSON parser tolerates comments and trailing commas, keeps original text."""
+    doc = parser.parse_file(sample_hujson)
+    assert doc is not None
+    assert doc.format == ".hujson"
+    assert doc.metadata.get("type") == "hujson"
+    assert doc.metadata.get("is_valid_json") is True
+    assert doc.metadata.get("structure") == "object"
+    assert "acls" in doc.metadata.get("keys", [])
+    # Original text (comments included) is what gets indexed
+    assert "// Access control policy" in doc.content
+
+
+def test_parse_hujson_unterminated_comment_is_invalid(parser, tmp_path):
+    """An unterminated block comment must not silently truncate into valid JSON."""
+    f = tmp_path / "bad.hujson"
+    f.write_text('{"name": "x"} /*', encoding="utf-8")
+    doc = parser.parse_file(f)
+    assert doc is not None
+    assert doc.metadata.get("is_valid_json") is False
+
+
+def test_parse_yaml_non_k8s_has_no_k8s_metadata(parser, tmp_path):
+    """A bare `name:` without kind/apiVersion (e.g. GitHub Actions) is not a manifest."""
+    f = tmp_path / "workflow.yaml"
+    f.write_text("name: CI\non: push\njobs: {}\n", encoding="utf-8")
+    doc = parser.parse_file(f)
+    assert doc is not None
+    assert "k8s_kind" not in doc.metadata
+    assert "k8s_name" not in doc.metadata
+
+
+def test_parse_yaml_multi_document_uses_first(parser, tmp_path):
+    """K8s metadata comes from the first document's metadata.name, not data or later docs."""
+    f = tmp_path / "multi.yaml"
+    f.write_text(
+        "---\n"
+        "apiVersion: v1\n"
+        "kind: ConfigMap\n"
+        "metadata:\n"
+        "  name: first\n"
+        "data:\n"
+        "  name: not-this\n"
+        "---\n"
+        "apiVersion: v1\n"
+        "kind: Secret\n"
+        "metadata:\n"
+        "  name: second\n",
+        encoding="utf-8",
+    )
+    doc = parser.parse_file(f)
+    assert doc is not None
+    assert doc.metadata.get("k8s_kind") == "ConfigMap"
+    assert doc.metadata.get("k8s_name") == "first"
+
+
+def test_parse_dockerfile(parser, sample_dockerfile):
+    """Extensionless Dockerfile is dispatched by exact filename."""
+    doc = parser.parse_file(sample_dockerfile)
+    assert doc is not None
+    assert doc.format == "Dockerfile"
+    assert doc.metadata.get("type") == "text"
+    assert "FROM python:3.12-slim" in doc.content
+
+
+def test_parse_directory_includes_new_formats(parser, tmp_path):
+    """Directory ingestion picks up infra formats with the default config."""
+    (tmp_path / "main.go").write_text("package main\n\nfunc main() {}\n", encoding="utf-8")
+    (tmp_path / "deploy.yaml").write_text("apiVersion: v1\nkind: Service\n", encoding="utf-8")
+    (tmp_path / "Dockerfile").write_text("FROM python:3.12-slim\n", encoding="utf-8")
+
+    docs = parser.parse_directory(tmp_path)
+
+    assert {d.filename for d in docs} == {"main.go", "deploy.yaml", "Dockerfile"}
+
+
 def test_parse_typescript(parser, sample_ts):
     """TypeScript parser extracts functions, interfaces, enums, and imports."""
     doc = parser.parse_file(sample_ts)

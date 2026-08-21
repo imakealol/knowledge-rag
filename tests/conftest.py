@@ -418,3 +418,198 @@ def sample_xml(tmp_path):
     f = tmp_path / "test.xml"
     f.write_text(content, encoding="utf-8")
     return f
+
+
+@pytest.fixture
+def sample_yaml(tmp_path):
+    """Create a sample YAML file."""
+    content = """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: auth
+"""
+    f = tmp_path / "test.yaml"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def sample_go(tmp_path):
+    """Create a sample Go source file."""
+    content = """package main
+
+import (
+	"fmt"
+	"net/http"
+)
+
+type Config struct {
+	Port int
+}
+
+func main() {
+	fmt.Println("hello")
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {}
+
+func (c *Config) Addr() string {
+	return fmt.Sprintf(":%d", c.Port)
+}
+"""
+    f = tmp_path / "test.go"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def sample_sql(tmp_path):
+    """Create a sample SQL file."""
+    content = """CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL
+);
+
+SELECT id, email FROM users WHERE id = 1;
+INSERT INTO users (email) VALUES ('a@b.com');
+SELECT * FROM public.orders;
+"""
+    f = tmp_path / "test.sql"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def sample_proto(tmp_path):
+    """Create a sample Protocol Buffer file."""
+    content = """syntax = "proto3";
+
+package auth.v1;
+
+service AuthService {
+    rpc ValidateAccess (ValidateRequest) returns (ValidateResponse);
+}
+
+message ValidateRequest {
+    string token = 1;
+}
+
+message ValidateResponse {
+    bool valid = 1;
+}
+"""
+    f = tmp_path / "test.proto"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def sample_shell(tmp_path):
+    """Create a sample shell script."""
+    content = """#!/bin/bash
+
+deploy() {
+    echo "deploying"
+}
+
+function cleanup() {
+    echo "cleaning"
+}
+
+deploy
+"""
+    f = tmp_path / "test.sh"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def sample_kotlin(tmp_path):
+    """Create a sample Kotlin source file."""
+    content = """package com.example.auth
+
+import java.time.Instant
+
+data class Session(val token: String)
+
+class AuthService {
+    fun validate(token: String): Boolean {
+        return token.isNotEmpty()
+    }
+}
+
+private fun helper(): Instant = Instant.now()
+"""
+    f = tmp_path / "test.kt"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def sample_rust(tmp_path):
+    """Create a sample Rust source file."""
+    content = """use std::collections::HashMap;
+
+pub struct Config {
+    port: u16,
+}
+
+enum State {
+    Idle,
+    Running,
+}
+
+trait Handler {
+    fn handle(&self) -> bool;
+}
+
+pub fn main() {
+    println!("hello");
+}
+
+async fn serve(config: Config) {}
+"""
+    f = tmp_path / "test.rs"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def sample_hujson(tmp_path):
+    """Create a sample HuJSON file (comments + trailing commas)."""
+    content = """{
+    // Access control policy
+    "acls": [
+        {
+            "action": "accept",
+            "users": ["*"], // everyone
+        },
+    ],
+    /* trailing commas above are valid HuJSON */
+    "groups": {},
+}
+"""
+    f = tmp_path / "test.hujson"
+    f.write_text(content, encoding="utf-8")
+    return f
+
+
+@pytest.fixture
+def sample_dockerfile(tmp_path):
+    """Create a sample Dockerfile (extensionless, matched by filename)."""
+    content = """FROM python:3.12-slim
+
+WORKDIR /app
+COPY . .
+RUN pip install .
+
+CMD ["knowledge-rag"]
+"""
+    f = tmp_path / "Dockerfile"
+    f.write_text(content, encoding="utf-8")
+    return f
