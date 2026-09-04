@@ -1,5 +1,8 @@
 """Tests for configuration integrity."""
 
+import os
+from pathlib import Path
+
 from mcp_server.config import _merge_query_expansion_sources, config
 
 
@@ -152,3 +155,23 @@ def test_query_expansion_groups_extend_legacy_entries():
     assert merged["tb"] == ["triple barrier", "trip_barr", "legacy_alias"]
     assert "tb" in merged["triple barrier"]
     assert "trip_barr" in merged["triple barrier"]
+
+
+class TestKnowledgeRagDirResolution:
+    """Path(KNOWLEDGE_RAG_DIR).expanduser().resolve() must produce absolute paths."""
+
+    def test_relative_path_becomes_absolute(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        base = Path("." + os.sep + "my-rag-data").expanduser().resolve()
+        assert base.is_absolute()
+        assert base == (tmp_path / "my-rag-data").resolve()
+
+    def test_absolute_path_stays_absolute(self, tmp_path):
+        raw = str(tmp_path / "rag-store")
+        base = Path(raw).expanduser().resolve()
+        assert base == Path(raw).resolve()
+
+    def test_tilde_path_expands(self):
+        base = Path("~/.knowledge-rag").expanduser().resolve()
+        assert base.is_absolute()
+        assert "~" not in str(base)
